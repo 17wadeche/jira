@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import View from './View';
-import Edit from './Edit';
 
 function isLocalPreview() {
   return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -8,6 +7,7 @@ function isLocalPreview() {
 
 function App() {
   const [entryPoint, setEntryPoint] = useState(isLocalPreview() ? 'view' : null);
+  const [EditComponent, setEditComponent] = useState(null);
 
   useEffect(() => {
     if (isLocalPreview()) {
@@ -18,9 +18,17 @@ function App() {
 
     import('@forge/bridge')
       .then(({ view }) => view.getContext())
-      .then((context) => {
-        if (active) {
-          setEntryPoint(context.extension.entryPoint);
+      .then(async (context) => {
+        if (!active) return;
+
+        const nextEntryPoint = context.extension.entryPoint;
+        setEntryPoint(nextEntryPoint);
+
+        if (nextEntryPoint === 'edit') {
+          const module = await import('./Edit');
+          if (active) {
+            setEditComponent(() => module.default);
+          }
         }
       })
       .catch((error) => {
@@ -39,7 +47,11 @@ function App() {
     return 'Loading...';
   }
 
-  return entryPoint === 'edit' ? <Edit /> : <View />;
+  if (entryPoint === 'edit') {
+    return EditComponent ? <EditComponent /> : 'Loading configuration...';
+  }
+
+  return <View />;
 }
 
 export default App;

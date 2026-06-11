@@ -161,7 +161,145 @@ function Chart({ series }) {
     </svg>
   );
 }
+function ForecastPanel({ rows }) {
+  if (!rows || rows.length === 0) return null;
 
+  return (
+    <section className="bottomPanel">
+      <div className="panelTitle">⌄ Forecast</div>
+      <table className="dataTable">
+        <thead>
+          <tr>
+            <th>Label</th>
+            <th>Type</th>
+            <th>Velocity</th>
+            <th>Complete date</th>
+            <th>Intervals</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label}>
+              <td>
+                <span className={`scenarioBox ${row.key}`} /> {row.label}
+              </td>
+              <td>{row.type}</td>
+              <td>{row.velocity}</td>
+              <td>{row.completeDate}</td>
+              <td>{row.intervals}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function BreakdownPanel({ breakdown }) {
+  if (!breakdown?.groups?.length) return null;
+
+  return (
+    <section className="bottomPanel">
+      <div className="panelTitle">
+        ⌄ Breakdown
+        <button className="miniButton">Collapse all</button>
+        <button className="miniButton">Expand all</button>
+      </div>
+
+      <table className="dataTable">
+        <thead>
+          <tr>
+            <th>Metrics</th>
+            <th>Total</th>
+            <th>Trend</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <span className="legendDot remaining" /> Remaining Work
+            </td>
+            <td>{breakdown.total}</td>
+            <td>-</td>
+          </tr>
+
+          {breakdown.groups.map((group) => (
+            <React.Fragment key={group.label}>
+              <tr className="groupRow">
+                <td>⌄ {group.label}</td>
+                <td>
+                  <span className="bar">
+                    <span style={{ width: `${group.percent}%` }} />
+                  </span>
+                  {group.total} ({group.percent}%)
+                </td>
+                <td>-</td>
+              </tr>
+
+              {group.children.map((child) => (
+                <tr key={`${group.label}-${child.label}`} className="childRow">
+                  <td>{child.label}</td>
+                  <td>
+                    <span className="dotBar">
+                      {Array.from({ length: Math.min(child.total, 20) }).map((_, index) => (
+                        <i key={index} />
+                      ))}
+                    </span>
+                    {child.total} ({child.percent}%)
+                  </td>
+                  <td>-</td>
+                </tr>
+              ))}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function RemainingIssuesPanel({ issues }) {
+  if (!issues || issues.length === 0) return null;
+
+  return (
+    <section className="bottomPanel">
+      <div className="panelTitle">⌄ Remaining work ({issues.length})</div>
+
+      <div className="subTitle">Issues</div>
+
+      <table className="dataTable">
+        <thead>
+          <tr>
+            <th>Key</th>
+            <th>Summary</th>
+            <th>Issue count</th>
+            <th>Assignee</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {issues.map((issue) => (
+            <tr key={issue.key}>
+              <td>
+                <a href={issue.url} target="_blank" rel="noreferrer">
+                  {issue.key}
+                </a>
+              </td>
+              <td>{issue.summary}</td>
+              <td>
+                <span className="countPill">1</span>
+              </td>
+              <td>{issue.assignee || 'Unassigned'}</td>
+              <td>
+                <span className="statusPill">{issue.status}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
 function View() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -232,8 +370,8 @@ function View() {
       </div>
 
       <div className="controls">
-        <span>Last → 6 Bi-weeks</span>
-        <span>Group: Weekly</span>
+        <span>Last → {data.config?.rangeCount || 6} {data.config?.rangeUnit || 'Bi-weeks'}</span>
+        <span>Group: {data.config?.groupBy || 'Weekly'}</span>
         <span>Estimation field: Issue count</span>
       </div>
 
@@ -268,10 +406,13 @@ function View() {
 
       <Chart series={data.series} />
 
-      <div className="footerPanel">
-        <strong>Forecast</strong>
-        <span>Projected using recent weekly completion rate.</span>
-      </div>
+      {data.config?.showForecast && <ForecastPanel rows={data.forecast} />}
+
+      {data.config?.showBreakdown && <BreakdownPanel breakdown={data.breakdown} />}
+
+      {data.config?.showRemainingIssues && (
+        <RemainingIssuesPanel issues={data.remainingIssues} />
+      )}
     </div>
   );
 }
