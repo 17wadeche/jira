@@ -2,7 +2,7 @@ modules:
   jira:dashboardGadget:
     - key: twd-complaint-burndown-hello-world-gadget
       title: TWD Complaint Handling Burndown
-            description: Interactive TWD complaint handling burndown, forecast, and issue breakdown.
+      description: Interactive TWD complaint handling burndown, forecast, and issue breakdown.
       thumbnail: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
       resource: main
       resolver:
