@@ -95,6 +95,18 @@ function rangeButtonLabel(config) {
   return `Last → ${config.rangeCount} ${config.rangeUnit === 'biweeks' ? 'Bi-weeks' : displayValue(config.rangeUnit)}`;
 }
 
+function RangeDateInput({ label, value, min, max, onChange }) {
+  // Native date inputs provide the browser's familiar calendar picker. The
+  // overlaid prompt keeps an empty field as clear as Jira's own range control,
+  // while pointer-events remain disabled so every click reaches the input.
+  return <label className="rangeDateField">
+    <span className="srOnly">{label}</span>
+    {!value && <span className="rangeDatePrompt" aria-hidden="true">{label}</span>}
+    <input className={value ? 'hasValue' : ''} type="date" aria-label={label} value={value} min={min} max={max} onChange={onChange}/>
+  </label>;
+}
+
+
 function RangeMenu({ config, openMenu, setOpenMenu, onApply }) {
   // Keep edits inside the popover until Apply is selected. This makes Cancel safe
   // and mirrors Jira's native date-range controls rather than changing the chart
@@ -117,16 +129,15 @@ function RangeMenu({ config, openMenu, setOpenMenu, onApply }) {
     <button type="button" className={`toolButton ${isOpen ? 'selected' : ''}`} onClick={() => setOpenMenu(isOpen ? '' : 'range')}>{rangeButtonLabel(config)}⌄</button>
     {isOpen && <div className="popover rangePopover">
       <div className="rangeTabs" role="tablist" aria-label="Date range type">
-        {['last', 'since', 'fixed'].map((mode) => <button type="button" role="tab" aria-selected={draft.rangeMode === mode} className={draft.rangeMode === mode ? 'active' : ''} key={mode} onClick={() => update('rangeMode', mode)}>{displayValue(mode)}</button>)}
-      </div>
+        {['last', 'since', 'fixed'].map((mode) => <button type="button" role="tab" aria-selected={draft.rangeMode === mode} className={draft.rangeMode === mode ? 'active' : ''} key={mode} onClick={(event) => { event.stopPropagation(); update('rangeMode', mode); }}>{displayValue(mode)}</button>)}      </div>
       {draft.rangeMode === 'last' && <div className="rangeForm lastRangeForm">
         <label><span className="srOnly">Number of intervals</span><input type="number" min="1" value={draft.rangeCount} onChange={(event) => update('rangeCount', event.target.value)}/></label>
         <label><span className="srOnly">Range unit</span><select value={String(draft.rangeUnit).toLowerCase()} onChange={(event) => update('rangeUnit', event.target.value)}><option value="days">Days</option><option value="weeks">Weeks</option><option value="biweeks">Bi-weeks</option><option value="months">Months</option><option value="quarters">Quarters</option></select></label>
       </div>}
-      {draft.rangeMode === 'since' && <div className="rangeForm"><label><span className="srOnly">Since</span><input type="date" aria-label="Since" value={draft.sinceDate} onChange={(event) => update('sinceDate', event.target.value)}/></label></div>}
+      {draft.rangeMode === 'since' && <div className="rangeForm"><RangeDateInput label="Since" value={draft.sinceDate} onChange={(event) => update('sinceDate', event.target.value)}/></div>}
       {draft.rangeMode === 'fixed' && <div className="rangeForm fixedRangeForm">
-        <label><span className="srOnly">From</span><input type="date" aria-label="From" value={draft.fixedFrom} max={draft.fixedTo || undefined} onChange={(event) => update('fixedFrom', event.target.value)}/></label>
-        <label><span className="srOnly">To</span><input type="date" aria-label="To" value={draft.fixedTo} min={draft.fixedFrom || undefined} onChange={(event) => update('fixedTo', event.target.value)}/></label>
+        <RangeDateInput label="From" value={draft.fixedFrom} max={draft.fixedTo || undefined} onChange={(event) => update('fixedFrom', event.target.value)}/>
+        <RangeDateInput label="To" value={draft.fixedTo} min={draft.fixedFrom || undefined} onChange={(event) => update('fixedTo', event.target.value)}/>
       </div>}
       <div className="popoverActions"><button type="button" onClick={() => setOpenMenu('')}>Cancel</button><button type="button" className="primaryButton" disabled={!valid} onClick={() => { setOpenMenu(''); onApply(draft); }}>Apply</button></div>
     </div>}
