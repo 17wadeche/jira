@@ -87,11 +87,19 @@ function Chart({ series, config, forecast, personSeries = [] }) {
     {visible('completed') && <path d={path(series,'completed')} className="line completedLine"/>}
     {visible('remaining') && <path d={path(series,'remaining')} className="line remainingLine"/>}
     {separatePeople && personSeries.map((person, personIndex) => <g key={person.assignee} style={{color:personColors[personIndex % personColors.length]}}>
-      {/* Remaining and completed use the same person color. The completed line
-          is dotted so it reads as a work state, rather than another person. */}
       {visible('remaining') && <path d={path(person.series, 'remaining')} className="line personLine personRemainingLine" style={{stroke:'currentColor'}}/>}
       {visible('completed') && <path d={path(person.series, 'completed')} className="line personLine personCompletedLine" style={{stroke:'currentColor'}}/>}
-      {config.showForecast !== false && personScenarios(person).map((scenario) => { const points=makeForecast(person.series,scenario.velocity); return <path key={scenario.key} d={`M ${x(person.series.length-1)} ${y(person.series[person.series.length-1]?.remaining || 0)} ${path(points,'remaining',person.series.length).replace('M','L')}`} className={`line personForecastLine ${scenario.key}Line`} style={{stroke:'currentColor'}}/>; })}
+      {config.showForecast !== false && personScenarios(person).map((scenario) => {
+        const points = makeForecast(person.series, scenario.velocity);
+        const preferredLabelIndex = { max:0, average:1, min:2 }[scenario.key] || 0;
+        const labelIndex = Math.min(preferredLabelIndex, Math.max(points.length - 1, 0));
+        const labelPoint = points[labelIndex];
+        const labelOffset = { max:-9, average:3, min:15 }[scenario.key] || 0;
+        return <g key={scenario.key}>
+          <path d={`M ${x(person.series.length-1)} ${y(person.series[person.series.length-1]?.remaining || 0)} ${path(points,'remaining',person.series.length).replace('M','L')}`} className={`line personForecastLine ${scenario.key}Line`} style={{stroke:'currentColor'}}/>
+          {labelPoint && <text x={x(person.series.length+labelIndex)+5} y={y(labelPoint.remaining)+labelOffset} className="personForecastLabel" style={{fill:'currentColor'}}>{person.assignee} · {displayValue(scenario.key)}</text>}
+        </g>;
+      })}
     </g>)}
     {!separatePeople && config.showForecast !== false && activeScenarios.map((scenario) => { const points=makeForecast(series,scenario.velocity); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}</g>; })}
     {series.map((point,index) => <g key={`${point.label}-dots`}>
