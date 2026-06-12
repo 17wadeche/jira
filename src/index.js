@@ -83,21 +83,6 @@ async function searchIssues(jql) {
   return issues;
 }
 
-async function getIssueChangelog(issueKey) {
-  const histories = [];
-  let startAt = 0;
-  let total = 0;
-
-  do {
-    const page = await jiraJson(route`/rest/api/3/issue/${issueKey}/changelog?startAt=${startAt}&maxResults=100`);
-    histories.push(...(page.values || []));
-    total = page.total || 0;
-    startAt += page.maxResults || 100;
-  } while (startAt < total && histories.length < 500);
-
-  return histories;
-}
-
 function findCompletedDate(issue, histories, doneStatuses) {
   const doneSet = new Set(doneStatuses.map(normalize));
   const sorted = [...histories].sort((a, b) => new Date(a.created) - new Date(b.created));
@@ -200,22 +185,20 @@ resolver.define('getBurndownData', async ({ payload }) => {
   const doneStatuses = parseDoneStatuses(config.doneStatuses);
   const rawIssues = await searchIssues(config.jql);
 
-  // Changelogs are deliberately collected in small batches. This prevents a
-  // large filter from exhausting Jira's concurrent request limits.
-  const issues = [];
-  for (let index = 0; index < rawIssues.length; index += 8) {
-    const batch = rawIssues.slice(index, index + 8);
-    issues.push(...await Promise.all(batch.map(async (issue) => ({
-      key: issue.key,
-      summary: issue.fields?.summary || '',
-      status: issue.fields?.status?.name || 'Unknown',
-      assignee: issue.fields?.assignee?.displayName || 'Unassigned',
-      issueType: issue.fields?.issuetype?.name || 'Other',
-      parent: issue.fields?.parent?.key || 'No parent',
-      created: issue.fields?.created,
-      completedDate: findCompletedDate(issue, await getIssueChangelog(issue.key), doneStatuses)
-    }))));
-  }
+  // The enhanced search response already contains everything needed for this
+  // dashboard. Avoiding a separate changelog request for every issue is important:
+  // a large saved filter can otherwise exceed the Forge invocation time limit and
+  // leave the gadget appearing to load forever.
+  const issues = rawIssues.map((issue) => ({
+    key: issue.key,
+    summary: issue.fields?.summary || '',
+    status: issue.fields?.status?.name || 'Unknown',
+    assignee: issue.fields?.assignee?.displayName || 'Unassigned',
+    issueType: issue.fields?.issuetype?.name || 'Other',
+    parent: issue.fields?.parent?.key || 'No parent',
+    created: issue.fields?.created,
+    completedDate: findCompletedDate(issue, [], doneStatuses)
+  }));
 
   const chart = buildSeries(issues, config);
   const remainingIssues = issues.filter((issue) => !issue.completedDate).map((issue) => ({ ...issue, url: `/browse/${issue.key}` }));
