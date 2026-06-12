@@ -80,10 +80,10 @@ function Edit() {
 
   return (
     <form className="editPage" onSubmit={submit}>
-      <h2>TWD Burndown Configuration</h2>
+      <header className="editHeader"><span className="editEyebrow">Dashboard gadget</span><h2>TWD Burndown Configuration</h2><p>Choose the Jira work, reporting window, and forecast details shown in this gadget.</p></header>
 
       <section className="editSection">
-        <h3>Data source</h3>
+        <h3>Data source</h3><p className="sectionDescription">Use a saved filter or JQL query to choose the issues included in the burndown.</p>
 
         <label>
           Saved filter / JQL
@@ -96,7 +96,7 @@ function Edit() {
       </section>
 
       <section className="editSection">
-        <h3>Calculation</h3>
+        <h3>Calculation</h3><p className="sectionDescription">Define when work counts as complete and how the reporting timeline is grouped.</p>
 
         <label>
           Complete when
@@ -152,7 +152,7 @@ function Edit() {
       </section>
 
       <section className="editSection">
-        <h3>Metrics</h3>
+        <h3>Metrics</h3><p className="sectionDescription">Choose the lines and labels displayed on the chart.</p>
 
         <label className="checkRow">
           <input
@@ -192,7 +192,7 @@ function Edit() {
       </section>
 
       <section className="editSection">
-        <h3>Forecast</h3>
+        <h3>Forecast</h3><p className="sectionDescription">Project remaining work using recent delivery velocity and available capacity.</p>
 
         <label className="checkRow">
           <input
@@ -227,7 +227,7 @@ function Edit() {
       </section>
 
       <section className="editSection">
-        <h3>Scenarios</h3>
+        <h3>Scenarios</h3><p className="sectionDescription">Only selected scenarios appear on the chart and in the forecast table.</p>
 
         <label className="checkRow">
           <input
@@ -258,7 +258,7 @@ function Edit() {
       </section>
 
       <section className="editSection">
-        <h3>Bottom panels</h3>
+        <h3>Bottom panels</h3><p className="sectionDescription">Choose the supporting detail shown beneath the chart.</p>
 
         <label className="checkRow">
           <input
