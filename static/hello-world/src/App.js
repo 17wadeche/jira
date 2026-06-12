@@ -6,7 +6,9 @@ function isLocalPreview() {
 }
 
 function App() {
-  const [entryPoint, setEntryPoint] = useState(isLocalPreview() ? 'view' : null);
+  // Render the normal gadget immediately. Forge context can be slow (or unavailable during
+  // a dashboard refresh), so blocking on it leaves the entire gadget stuck on ‘Loading…’.
+  const [entryPoint, setEntryPoint] = useState('view');
   const [EditComponent, setEditComponent] = useState(null);
 
   useEffect(() => {
@@ -21,7 +23,7 @@ function App() {
       .then(async (context) => {
         if (!active) return;
 
-        const nextEntryPoint = context.extension.entryPoint;
+        const nextEntryPoint = context?.extension?.entryPoint || 'view';
         setEntryPoint(nextEntryPoint);
 
         if (nextEntryPoint === 'edit') {
@@ -42,10 +44,6 @@ function App() {
       active = false;
     };
   }, []);
-
-  if (!entryPoint) {
-    return 'Loading...';
-  }
 
   if (entryPoint === 'edit') {
     return EditComponent ? <EditComponent /> : 'Loading configuration...';

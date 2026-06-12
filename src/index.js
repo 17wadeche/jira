@@ -3,93 +3,84 @@ import api, { route } from '@forge/api';
 
 const resolver = new Resolver();
 
-const DEFAULT_JQL = 'filter = "Replan - Business Testing & Approval"';
-
-const DEFAULT_DONE_STATUSES = [
-  'Done',
-  'Closed',
-  'Resolved',
-  'Completed',
-  'Approved',
-  'Business Approved'
-];
+const DEFAULT_CONFIG = {
+  jql: 'filter = "Replan - Business Testing & Approval"',
+  doneStatuses: ['Done', 'Closed', 'Resolved', 'Completed', 'Approved', 'Business Approved'],
+  rangeCount: 6,
+  rangeUnit: 'biweeks',
+  groupBy: 'weekly',
+  showCompleted: true,
+  showRemaining: true,
+  showTotal: true,
+  showValueLabels: true,
+  showForecast: true,
+  showBreakdown: true,
+  showRemainingIssues: true
+};
 
 function startOfWeek(date) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day;
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  const result = new Date(date);
+  result.setDate(result.getDate() - result.getDay());
+  result.setHours(0, 0, 0, 0);
+  return result;
 }
 
 function addDays(date, days) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function formatDate(date) {
-  return date.toISOString().slice(0, 10);
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
 }
 
 function normalize(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function parseDoneStatuses(value) {
+  if (Array.isArray(value)) return value;
+  return String(value || DEFAULT_CONFIG.doneStatuses.join(','))
+    .split(',')
+    .map((status) => status.trim())
+    .filter(Boolean);
+}
+
 async function jiraJson(path, options = {}) {
+  // asUser() ensures Jira performs its normal permission checks for the person
+  // viewing the dashboard. The gadget never receives issues they cannot browse.
   const response = await api.asUser().requestJira(path, {
     ...options,
-    headers: {
-      Accept: 'application/json',
-      ...(options.headers || {})
-    }
+    headers: { Accept: 'application/json', ...(options.headers || {}) }
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Jira API failed: ${response.status} ${text}`);
+    throw new Error(`Jira API failed (${response.status}): ${await response.text()}`);
   }
 
   return response.json();
 }
 
 async function searchIssues(jql) {
-  const allIssues = [];
-  let nextPageToken = undefined;
+  const issues = [];
+  let nextPageToken;
 
   do {
     const body = {
       jql,
       maxResults: 100,
-      fields: [
-        'summary',
-        'status',
-        'created',
-        'updated',
-        'resolutiondate',
-        'assignee',
-        'parent'
-      ]
+      fields: ['summary', 'status', 'issuetype', 'created', 'updated', 'resolutiondate', 'assignee', 'parent']
     };
+    if (nextPageToken) body.nextPageToken = nextPageToken;
 
-    if (nextPageToken) {
-      body.nextPageToken = nextPageToken;
-    }
-
-    const response = await jiraJson(route`/rest/api/3/search/jql`, {
+    const page = await jiraJson(route`/rest/api/3/search/jql`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
 
-    allIssues.push(...(response.issues || []));
-    nextPageToken = response.nextPageToken;
-  } while (nextPageToken && allIssues.length < 500);
+    issues.push(...(page.issues || []));
+    nextPageToken = page.nextPageToken;
+  } while (nextPageToken && issues.length < 500);
 
-  return allIssues;
+  return issues;
 }
 
 async function getIssueChangelog(issueKey) {
@@ -98,13 +89,10 @@ async function getIssueChangelog(issueKey) {
   let total = 0;
 
   do {
-    const response = await jiraJson(
-      route`/rest/api/3/issue/${issueKey}/changelog?startAt=${startAt}&maxResults=100`
-    );
-
-    histories.push(...(response.values || []));
-    total = response.total || 0;
-    startAt += response.maxResults || 100;
+    const page = await jiraJson(route`/rest/api/3/issue/${issueKey}/changelog?startAt=${startAt}&maxResults=100`);
+    histories.push(...(page.values || []));
+    total = page.total || 0;
+    startAt += page.maxResults || 100;
   } while (startAt < total && histories.length < 500);
 
   return histories;
@@ -112,118 +100,133 @@ async function getIssueChangelog(issueKey) {
 
 function findCompletedDate(issue, histories, doneStatuses) {
   const doneSet = new Set(doneStatuses.map(normalize));
-
-  const sorted = [...histories].sort(
-    (a, b) => new Date(a.created) - new Date(b.created)
-  );
+  const sorted = [...histories].sort((a, b) => new Date(a.created) - new Date(b.created));
 
   for (const history of sorted) {
     for (const item of history.items || []) {
-      if (item.field === 'status' && doneSet.has(normalize(item.toString))) {
-        return history.created;
-      }
+      if (item.field === 'status' && doneSet.has(normalize(item.toString))) return history.created;
     }
   }
 
-  const currentStatus = issue.fields?.status?.name;
-  if (doneSet.has(normalize(currentStatus))) {
+  if (doneSet.has(normalize(issue.fields?.status?.name))) {
     return issue.fields?.resolutiondate || issue.fields?.updated || issue.fields?.created;
   }
 
   return null;
 }
 
-function buildSeries(enrichedIssues) {
-  const today = new Date();
-  const thisWeekStart = startOfWeek(today);
-  const chartStart = addDays(thisWeekStart, -77); // 12 weekly points
+function buildSeries(issues, config) {
+  const groupDays = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 91 }[config.groupBy] || 7;
+  const rangeDays = { days: 1, weeks: 7, biweeks: 14, months: 30, quarters: 91 }[config.rangeUnit] || 14;
+  const pointCount = Math.max(4, Math.min(18, Math.ceil((Number(config.rangeCount) * rangeDays) / groupDays)));
+  const currentStart = startOfWeek(new Date());
+  const chartStart = addDays(currentStart, -(pointCount - 1) * groupDays);
 
-  const buckets = Array.from({ length: 12 }, (_, index) => {
-    const start = addDays(chartStart, index * 7);
-    const end = addDays(start, 6);
+  const series = Array.from({ length: pointCount }, (_, index) => {
+    const start = addDays(chartStart, index * groupDays);
+    const end = addDays(start, groupDays - 1);
     end.setHours(23, 59, 59, 999);
-
+    const total = issues.filter((issue) => new Date(issue.created) <= end).length;
+    const completed = issues.filter((issue) => issue.completedDate && new Date(issue.completedDate) <= end).length;
     return {
       label: `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
-      start,
-      end
-    };
-  });
-
-  const series = buckets.map((bucket) => {
-    const total = enrichedIssues.filter((issue) => {
-      return new Date(issue.created) <= bucket.end;
-    }).length;
-
-    const completed = enrichedIssues.filter((issue) => {
-      return issue.completedDate && new Date(issue.completedDate) <= bucket.end;
-    }).length;
-
-    const remaining = Math.max(total - completed, 0);
-
-    return {
-      label: bucket.label,
-      date: formatDate(bucket.end),
       total,
       completed,
-      remaining
+      remaining: Math.max(total - completed, 0)
     };
   });
 
-  const current = series[series.length - 1] || {
-    total: 0,
-    completed: 0,
-    remaining: 0
-  };
-
-  const first = series[0] || {
-    total: 0
-  };
-
-  const completedPercent =
-    current.total > 0 ? Math.round((current.completed / current.total) * 100) : 0;
-
-  const scopeChange = current.total - first.total;
-
+  const current = series[series.length - 1] || { total: 0, completed: 0, remaining: 0 };
+  const first = series[0] || { total: 0 };
   return {
     series,
     metrics: {
       totalWork: current.total,
       completedWork: current.completed,
       remainingWork: current.remaining,
-      completedPercent,
-      scopeChange,
-      activeInterval: current.remaining
+      activeInterval: current.remaining,
+      completedPercent: current.total ? Math.round((current.completed / current.total) * 100) : 0,
+      scopeChange: current.total - first.total
     }
   };
 }
 
-resolver.define('getBurndownData', async ({ payload }) => {
-  const jql = payload?.jql || DEFAULT_JQL;
-  const doneStatuses = payload?.doneStatuses || DEFAULT_DONE_STATUSES;
+function buildForecast(series) {
+  const current = series[series.length - 1] || { remaining: 0 };
+  const velocities = series.slice(1).map((point, index) => Math.max(0, point.completed - series[index].completed)).filter(Boolean);
+  const average = velocities.length ? Math.max(1, Math.round(velocities.reduce((sum, value) => sum + value, 0) / velocities.length)) : 1;
+  const max = Math.max(average, ...velocities, 1);
+  const min = Math.max(1, Math.min(...(velocities.length ? velocities : [average])));
+  const row = (label, key, velocity) => ({
+    label,
+    key,
+    type: 'Auto',
+    velocity,
+    intervals: Math.ceil(current.remaining / velocity),
+    completeDate: addDays(new Date(), Math.ceil(current.remaining / velocity) * 7).toLocaleDateString('en-US')
+  });
+  return [row('Max', 'max', max), row('Average', 'average', average), row('Min', 'min', min)];
+}
 
-  const issues = await searchIssues(jql);
-
-  const enrichedIssues = [];
-
+function buildBreakdown(issues) {
+  const map = new Map();
   for (const issue of issues) {
-    const histories = await getIssueChangelog(issue.key);
+    const parent = issue.parent || 'No parent';
+    const type = issue.issueType || 'Other';
+    if (!map.has(parent)) map.set(parent, new Map());
+    map.get(parent).set(type, (map.get(parent).get(type) || 0) + 1);
+  }
+  const total = issues.length;
+  return {
+    total,
+    groups: [...map.entries()].map(([label, children]) => {
+      const groupTotal = [...children.values()].reduce((sum, value) => sum + value, 0);
+      return {
+        label,
+        total: groupTotal,
+        percent: total ? Math.round((groupTotal / total) * 100) : 0,
+        children: [...children.entries()].map(([childLabel, childTotal]) => ({
+          label: childLabel,
+          total: childTotal,
+          percent: groupTotal ? Math.round((childTotal / groupTotal) * 100) : 0
+        }))
+      };
+    })
+  };
+}
 
-    enrichedIssues.push({
+resolver.define('getBurndownData', async ({ payload }) => {
+  const config = { ...DEFAULT_CONFIG, ...(payload?.config || {}), jql: payload?.jql || payload?.config?.jql || DEFAULT_CONFIG.jql };
+  const doneStatuses = parseDoneStatuses(config.doneStatuses);
+  const rawIssues = await searchIssues(config.jql);
+
+  // Changelogs are deliberately collected in small batches. This prevents a
+  // large filter from exhausting Jira's concurrent request limits.
+  const issues = [];
+  for (let index = 0; index < rawIssues.length; index += 8) {
+    const batch = rawIssues.slice(index, index + 8);
+    issues.push(...await Promise.all(batch.map(async (issue) => ({
       key: issue.key,
-      summary: issue.fields?.summary,
-      status: issue.fields?.status?.name,
+      summary: issue.fields?.summary || '',
+      status: issue.fields?.status?.name || 'Unknown',
+      assignee: issue.fields?.assignee?.displayName || 'Unassigned',
+      issueType: issue.fields?.issuetype?.name || 'Other',
+      parent: issue.fields?.parent?.key || 'No parent',
       created: issue.fields?.created,
-      updated: issue.fields?.updated,
-      completedDate: findCompletedDate(issue, histories, doneStatuses)
-    });
+      completedDate: findCompletedDate(issue, await getIssueChangelog(issue.key), doneStatuses)
+    }))));
   }
 
+  const chart = buildSeries(issues, config);
+  const remainingIssues = issues.filter((issue) => !issue.completedDate).map((issue) => ({ ...issue, url: `/browse/${issue.key}` }));
   return {
-    jql,
+    config,
     doneStatuses,
-    issueCount: enrichedIssues.length,
-    ...buildSeries(enrichedIssues)
+    issueCount: issues.length,
+    ...chart,
+    forecast: buildForecast(chart.series),
+    breakdown: buildBreakdown(remainingIssues),
+    remainingIssues
   };
 });
 
