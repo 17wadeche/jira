@@ -4,12 +4,12 @@ import './App.css';
 const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval"', rangeCount: 6, rangeUnit: 'Bi-weeks', groupBy: 'Weekly',
   showCompleted: true, showRemaining: true, showTotal: true, showValueLabels: true, showForecast: true,
-  showBreakdown: true, showRemainingIssues: true
+  showBreakdown: true, showRemainingIssues: true, assignee: 'all'
 };
 
 const MOCK_DATA = {
   config: DEFAULT_CONFIG,
-  metrics: { completedPercent: 72, scopeChange: 47, completedWork: 92, activeInterval: 29, remainingWork: 47, totalWork: 168 },
+  metrics: { completedPercent: 72, scopeChange: 47, completedWork: 92, activeInterval: 0, remainingWork: 47, totalWork: 168 },
   series: [
     ['Feb 1 - Feb 7',121,0,121],['Feb 8 - Feb 14',121,10,111],['Feb 15 - Feb 21',121,10,111],['Feb 22 - Feb 28',121,16,105],
     ['Feb 29 - Mar 6',121,34,87],['Mar 7 - Mar 13',121,34,87],['Mar 14 - Mar 20',121,52,69],['Mar 21 - Mar 27',121,52,69],
@@ -48,10 +48,13 @@ function makeForecast(series, velocity) {
   return points;
 }
 
-function Chart({ series, config }) {
+function Chart({ series, config, forecast }) {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
   const width = 1180, height = 390, padding = { top:36, right:34, bottom:92, left:54 };
-  const scenarios = [{key:'max',velocity:28},{key:'average',velocity:8},{key:'min',velocity:12}];
-  const longest = makeForecast(series, 8);
+  const scenarios = forecast?.length ? forecast : [{key:'max',velocity:28},{key:'average',velocity:8},{key:'min',velocity:12}];
+  const positiveVelocities = scenarios.map((scenario) => scenario.velocity).filter((velocity) => velocity > 0);
+  const slowestVelocity = positiveVelocities.length ? Math.min(...positiveVelocities) : 1;
+  const longest = makeForecast(series, slowestVelocity);
   const maxY = Math.max(10, ...series.flatMap((point) => [point.total, point.completed, point.remaining]));
   const count = series.length + longest.length;
   const xStep = (width - padding.left - padding.right) / Math.max(count - 1, 1);
@@ -60,18 +63,23 @@ function Chart({ series, config }) {
   const path = (points, field, offset = 0) => points.map((point,index) => `${index ? 'L':'M'} ${x(index + offset)} ${y(point[field] || 0)}`).join(' ');
   const visible = (field) => config[`show${field[0].toUpperCase()}${field.slice(1)}`] !== false;
   const last = series[series.length - 1];
+  const hovered = hoveredIndex === null ? null : series[hoveredIndex];
+  const tooltipX = hoveredIndex !== null && x(hoveredIndex) > width - 300 ? x(hoveredIndex) - 250 : (hoveredIndex !== null ? x(hoveredIndex) + 12 : 0);
+  const tooltipY = hovered ? Math.max(46, y(hovered.total) - 28) : 0;
 
   return <svg viewBox={`0 0 ${width} ${height}`} className="chart" role="img" aria-label="Burndown chart">
     {[0,.2,.4,.6,.8,1].map((tick) => <g key={tick}><line x1={padding.left} x2={width-padding.right} y1={y(maxY*tick)} y2={y(maxY*tick)} className="grid"/><text x="8" y={y(maxY*tick)+4} className="axisText">{Math.round(maxY*tick)}</text></g>)}
     {Array.from({length:count}).map((_,index) => <line key={index} x1={x(index)} x2={x(index)} y1={padding.top} y2={height-padding.bottom} className="grid"/>)}
+    {series.map((point,index) => <rect key={`${point.label}-hover`} x={x(index)-xStep/2} y={padding.top} width={xStep} height={height-padding.top-padding.bottom} className={`intervalHitArea ${hoveredIndex===index?'active':''}`} onMouseEnter={()=>setHoveredIndex(index)} onMouseLeave={()=>setHoveredIndex(null)}/>)}
     {series.map((point,index) => <text key={point.label} x={x(index)} y={height-54} className="xLabel" transform={`rotate(-43 ${x(index)} ${height-54})`}>{point.label}</text>)}
     {visible('total') && <path d={path(series,'total')} className="line totalLine"/>}
     {visible('completed') && <path d={path(series,'completed')} className="line completedLine"/>}
     {visible('remaining') && <path d={path(series,'remaining')} className="line remainingLine"/>}
-    {scenarios.map((scenario) => { const points=makeForecast(series,scenario.velocity); return <path key={scenario.key} d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>; })}
+    {config.showForecast !== false && scenarios.map((scenario) => { const points=makeForecast(series,scenario.velocity); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}</g>; })}
     {series.map((point,index) => <g key={`${point.label}-dots`}>
       {['total','completed','remaining'].map((field) => visible(field) && <g key={field}><circle cx={x(index)} cy={y(point[field])} r="4" className={`dot ${field}Dot`}/>{config.showValueLabels !== false && <text x={x(index)+5} y={y(point[field])-7} className={`${field}Value valueLabel`}>{point[field]}</text>}</g>)}
     </g>)}
+    {hovered && <g className="chartTooltip" pointerEvents="none"><rect x={tooltipX} y={tooltipY} width="238" height="146" rx="4"/><text x={tooltipX+12} y={tooltipY+22} className="tooltipTitle">{hovered.label}</text><text x={tooltipX+12} y={tooltipY+48}>Total work<tspan x={tooltipX+218} textAnchor="end">{hovered.total}</tspan></text><text x={tooltipX+12} y={tooltipY+70}>Remaining work<tspan x={tooltipX+218} textAnchor="end">{hovered.remaining}</tspan></text><text x={tooltipX+12} y={tooltipY+92}>Completed work<tspan x={tooltipX+218} textAnchor="end">{hovered.completed}</tspan></text><text x={tooltipX+12} y={tooltipY+114}>Velocity<tspan x={tooltipX+218} textAnchor="end">{hoveredIndex ? Math.max(0, hovered.completed-series[hoveredIndex-1].completed) : 0}</tspan></text><text x={tooltipX+12} y={tooltipY+136} className="tooltipHint">Current interval details</text></g>}
   </svg>;
 }
 
@@ -148,12 +156,15 @@ function View() {
     } catch(err){setError(err.message||String(err));} finally{setLoading(false);}
   }
   useEffect(()=>{ if(isLocalPreview())return; import('@forge/bridge').then(({view})=>view.getContext()).then((context)=>{const saved=context?.extension?.gadgetConfiguration||{};const next={...DEFAULT_CONFIG,...saved,jql:decodeJql(saved.jql||DEFAULT_CONFIG.jql)};setConfig(next);loadData(next);}).catch(()=>loadData(DEFAULT_CONFIG)); },[]);
-  const metrics=data.metrics||MOCK_DATA.metrics, legend=useMemo(()=>[['Completed work',metrics.completedWork,'completed'],['Active interval',metrics.activeInterval,'active'],['Remaining work',metrics.remainingWork,'remaining'],['Total work',metrics.totalWork,'total']], [metrics]);
+  const metrics=data.metrics||MOCK_DATA.metrics, legend=useMemo(()=>[['Completed work',metrics.completedWork,'completed'],['Completed this interval',metrics.activeInterval,'active'],['Remaining work',metrics.remainingWork,'remaining'],['Total work',metrics.totalWork,'total']], [metrics]);
+  const assignees = data.assignees || ['Joe Alpha', 'Unassigned'];
+  const selectedPerson = config.assignee && config.assignee !== 'all' ? config.assignee : '';
+  const chartTitle = selectedPerson ? `Individual burndown chart for ${selectedPerson}` : 'Burndown chart for all people';
   if(error) return <main className="page errorState"><h2>Could not load burndown data</h2><p>{error}</p><button onClick={()=>loadData()}>Retry</button></main>;
-  return <main className="page"><header className="topBar"><div><h1>Individual burndown chart for TWD Complaint Handling</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
+  return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><label className="peopleFilter"><span>People</span><select value={config.assignee||'all'} onChange={(event)=>loadData({...config,assignee:event.target.value})}><option value="all">All people</option>{assignees.map((assignee)=><option value={assignee} key={assignee}>{assignee}</option>)}</select></label><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
     <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><Menu name={`Last → ${config.rangeCount} ${config.rangeUnit}`} openMenu={openMenu} setOpenMenu={setOpenMenu}><b>Last</b><label>Intervals<input value={config.rangeCount} onChange={(e)=>setConfig({...config,rangeCount:e.target.value})}/></label><button className="primaryButton" onClick={()=>{setOpenMenu('');loadData();}}>Apply</button></Menu><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><label>Interval count<input defaultValue="5"/></label><label>Capacity allocation coefficient<input defaultValue="100%"/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" defaultChecked/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
     <div className="metricGrid"><div className="metricCard"><span>Completed</span><b>{metrics.completedPercent}%</b></div><div className="metricCard"><span>Scope change</span><b>{metrics.scopeChange}<small> total&nbsp; {Math.max(1,Math.round(metrics.scopeChange/12))} avg/bi-week</small></b></div></div>
-    <div className="chartHeader"><div><b>Burndown chart</b></div><div className="legend">{legend.map(([label,value,type])=><span key={label}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config}/>}
+    <div className="chartHeader"><div><b>Burndown chart</b><span className="axisLabel">↑ Issue count</span></div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b>{type==='active'&&<i className="infoIcon" aria-label="Completed this interval means work completed during the latest reporting interval">?</i>}</span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast}/>}
     {config.showForecast!==false&&<ForecastPanel rows={data.forecast||[]}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown||{total:0,groups:[]}}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;
 }
 export default View;
