@@ -53,14 +53,25 @@ const isLocalPreview = () => ['localhost', '127.0.0.1'].includes(window.location
 const displayValue = (value) => String(value || '').replace(/(^|[-_])\w/g, (match) => match.replace(/[-_]/, ' ').toUpperCase());
 const decodeJql = (value) => String(value || '').replace(/&(?:amp|#38|#x26);/gi, '&');
 
-function makeForecast(series, velocity) {
+function makeForecast(series, scenario) {
   const points = [];
-  let remaining = series[series.length - 1]?.remaining || 0;
-  let week = 1;
-  while (remaining > 0 && week <= 8) {
-    remaining = Math.max(0, remaining - velocity);
-    points.push({ label:`Forecast ${week}`, remaining });
-    week += 1;
+  const startingRemaining = Number(series[series.length - 1]?.remaining) || 0;
+  const velocity = Math.max(0, Number(scenario?.velocity ?? scenario) || 0);
+  const suppliedIntervals = Math.max(0, Number(scenario?.intervals) || 0);
+
+  // The resolver supplies an interval count alongside each projected completion date.
+  // Use that count when it is available so the line reaches zero at the same point as
+  // the date shown to the viewer. The fallback keeps older responses working too.
+  const naturalIntervals = velocity > 0 ? Math.ceil(startingRemaining / velocity) : 0;
+  const intervalCount = Math.min(104, suppliedIntervals || naturalIntervals);
+
+  for (let interval = 1; interval <= intervalCount; interval += 1) {
+    // Force the final point to zero. Rounding and capacity adjustments can otherwise
+    // leave a tiny remainder and make a valid forecast line appear to lead nowhere.
+    const remaining = interval === intervalCount
+      ? 0
+      : Math.max(0, startingRemaining - velocity * interval);
+    points.push({ label:`Forecast ${interval}`, remaining });
   }
   return points;
 }
@@ -73,9 +84,10 @@ function Chart({ series, config, forecast, personSeries = [] }) {
   const individualMode = personSeries.length > 1;
   const personScenarios = (person) => activeScenarios.map((scenario) =>
     (person.forecast || []).find((personScenario) => personScenario.key === scenario.key) || scenario
-  );  const forecastLengths = individualMode
-    ? personSeries.flatMap((person) => personScenarios(person).map((scenario) => makeForecast(person.series, scenario.velocity).length))
-    : activeScenarios.map((scenario) => makeForecast(series, scenario.velocity).length);
+  );
+  const forecastLengths = individualMode
+    ? personSeries.flatMap((person) => personScenarios(person).map((scenario) => makeForecast(person.series, scenario).length))
+    : activeScenarios.map((scenario) => makeForecast(series, scenario).length);
   const longest = config.showForecast !== false && forecastLengths.length ? Math.max(...forecastLengths) : 0;
   const personValues = personSeries.flatMap((person) => person.series.flatMap((point) => [point.total, point.completed, point.remaining]));
   const maxY = Math.max(10, ...series.flatMap((point) => [point.total, point.completed, point.remaining]), ...personValues);
@@ -89,10 +101,26 @@ function Chart({ series, config, forecast, personSeries = [] }) {
   const hovered = hoveredIndex === null ? null : series[hoveredIndex];
   const tooltipX = hoveredIndex !== null && x(hoveredIndex) > width - 300 ? x(hoveredIndex) - 250 : (hoveredIndex !== null ? x(hoveredIndex) + 12 : 0);
   const tooltipY = hovered ? Math.max(46, y(hovered.total) - 28) : 0;
+  const completionLabel = (scenario, points, offset, lane = 0, prefix = '') => {
+    const endpointIndex = offset + points.length - 1;
+    if (!points.length || points[points.length - 1].remaining !== 0) return null;
 
-  return <svg viewBox={`0 0 ${width} ${height}`} className="chart" role="img" aria-label="Burndown chart">
+    // Keep long date labels inside the SVG when the slowest scenario ends at the
+    // far-right edge of the chart.
+    const endpointX = x(endpointIndex);
+    const textAnchor = endpointX > width - 120 ? 'end' : endpointX < padding.left + 120 ? 'start' : 'middle';
+    const labelX = endpointX + (textAnchor === 'end' ? -4 : textAnchor === 'start' ? 4 : 0);
+
+    return <g className={`completionMarker ${scenario.key}Completion`}>
+      <circle cx={endpointX} cy={y(0)} r="5"/>
+      <line x1={endpointX} x2={endpointX} y1={y(0)+7} y2={y(0)+14+lane*16}/>
+      <text x={labelX} y={y(0)+26+lane*16} textAnchor={textAnchor}>{prefix}{displayValue(scenario.key)} · {scenario.completeDate || `+${points.length} intervals`}</text>
+    </g>;
+  };
+  return <svg viewBox={`0 0 ${width} ${height}`} className="chart" role="img" aria-label="Burndown chart with projected completion dates">
     {[0,.2,.4,.6,.8,1].map((tick) => <g key={tick}><line x1={padding.left} x2={width-padding.right} y1={y(maxY*tick)} y2={y(maxY*tick)} className="grid"/><text x="8" y={y(maxY*tick)+4} className="axisText">{Math.round(maxY*tick)}</text></g>)}
     {Array.from({length:count}).map((_,index) => <line key={index} x1={x(index)} x2={x(index)} y1={padding.top} y2={height-padding.bottom} className="grid"/>)}
+    {config.showForecast !== false && longest > 0 && <g className="forecastArea"><rect x={x(series.length-1)+xStep/2} y={padding.top} width={Math.max(0,width-padding.right-(x(series.length-1)+xStep/2))} height={height-padding.top-padding.bottom}/><text x={x(series.length-1)+xStep/2+10} y={padding.top+16}>Forecast → completion</text></g>}
     {series.map((point,index) => <rect key={`${point.label}-hover`} x={x(index)-xStep/2} y={padding.top} width={xStep} height={height-padding.top-padding.bottom} className={`intervalHitArea ${hoveredIndex===index?'active':''}`} onMouseEnter={()=>setHoveredIndex(index)} onMouseLeave={()=>setHoveredIndex(null)}/>)}
     {series.map((point,index) => <text key={point.label} x={x(index)} y={height-54} className="xLabel" transform={`rotate(-43 ${x(index)} ${height-54})`}>{point.label}</text>)}
     {visible('total') && <path d={path(series,'total')} className="line totalLine"/>}
@@ -107,12 +135,17 @@ function Chart({ series, config, forecast, personSeries = [] }) {
         {visible('completed') && <path d={path(person.series,'completed')} className="line personLine personCompletedLine"/>}
         {visible('remaining') && <text x={x(person.series.length-1)+6} y={y(lastPersonPoint.remaining)-6} className="personLineLabel">{person.assignee}</text>}
         {config.showForecast !== false && personScenarios(person).map((scenario) => {
-          const points = makeForecast(person.series, scenario.velocity);
-          return <path key={scenario.key} d={`M ${x(person.series.length-1)} ${y(lastPersonPoint.remaining)} ${path(points,'remaining',person.series.length).replace('M','L')}`} className={`line personForecastLine ${scenario.key}Line`}/>;
+          const points = makeForecast(person.series, scenario);
+          return <g key={scenario.key}><path d={`M ${x(person.series.length-1)} ${y(lastPersonPoint.remaining)} ${path(points,'remaining',person.series.length).replace('M','L')}`} className={`line personForecastLine ${scenario.key}Line`}/>{scenario.key === 'average' && completionLabel(scenario, points, person.series.length, personIndex, `${person.assignee}: `)}</g>;
         })}
       </g>;
-    })} 
-    {!individualMode && config.showForecast !== false && activeScenarios.map((scenario) => { const points=makeForecast(series,scenario.velocity); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}</g>; })}
+    })}
+    {!individualMode && config.showForecast !== false && activeScenarios.map((scenario, scenarioIndex) => {
+      const points = makeForecast(series, scenario);
+      const labelIndex = Math.min(1, points.length - 1);
+      const labelPoint = points[labelIndex];
+      return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}{completionLabel(scenario, points, series.length, scenarioIndex)}</g>;
+    })}
     {series.map((point,index) => <g key={`${point.label}-dots`}>
       {['total','completed','remaining'].map((field) => visible(field) && !(individualMode && field === 'remaining') && <g key={field}><circle cx={x(index)} cy={y(point[field])} r="4" className={`dot ${field}Dot`}/>{config.showValueLabels !== false && <text x={x(index)+5} y={y(point[field])-7} className={`${field}Value valueLabel`}>{point[field]}</text>}</g>)}
     </g>)}
