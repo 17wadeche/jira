@@ -78,37 +78,81 @@ function Menu({ name, openMenu, setOpenMenu, children }) {
   return <div className="menuWrap"><button className={`toolButton ${openMenu===name?'selected':''}`} onClick={() => setOpenMenu(openMenu===name?'':name)}>{displayValue(name)}⌄</button>{openMenu===name && <div className={`popover ${name}Popover`}>{children}</div>}</div>;
 }
 
+function Caret({ expanded }) {
+  return <span className="caret" aria-hidden="true">{expanded ? '⌄' : '›'}</span>;
+}
+
+function CollapsiblePanel({ title, children, actions }) {
+  const [expanded, setExpanded] = useState(true);
+
+  return <section className="bottomPanel">
+    <div className="panelTitle">
+      <button className="collapseButton" type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+        <Caret expanded={expanded}/>{title}
+      </button>
+      {actions}
+    </div>
+    {expanded && children}
+  </section>;
+}
+
 function ForecastPanel({ rows }) {
-  return <section className="bottomPanel"><div className="panelTitle">⌄&nbsp; Forecast</div><table className="dataTable"><thead><tr><th>Label</th><th>Type</th><th>Velocity</th><th>Complete date</th><th>Intervals</th></tr></thead><tbody>{rows.map((row)=><tr key={row.label}><td><i className={`scenarioBox ${row.key}`}/> {row.label}</td><td>{row.type}</td><td>{row.velocity}</td><td>{row.completeDate}</td><td>{row.intervals} weeks</td></tr>)}</tbody></table></section>;
+  return <CollapsiblePanel title="Forecast"><table className="dataTable"><thead><tr><th>Label</th><th>Type</th><th>Velocity</th><th>Complete date</th><th>Intervals</th></tr></thead><tbody>{rows.map((row)=><tr key={row.label}><td><i className={`scenarioBox ${row.key}`}/> {row.label}</td><td>{row.type}</td><td>{row.velocity}</td><td>{row.completeDate}</td><td>{row.intervals} weeks</td></tr>)}</tbody></table></CollapsiblePanel>;
 }
 
 function BreakdownPanel({ breakdown }) {
-  return <section className="bottomPanel"><div className="panelTitle">⌄&nbsp; Breakdown <span className="panelActions">Collapse all&nbsp;&nbsp; Expand all</span></div><table className="dataTable"><thead><tr><th>Metrics</th><th>Total</th><th>Trend</th></tr></thead><tbody><tr className="highlightRow"><td>⌄ <i className="legendDot remaining"/> Remaining work</td><td>{breakdown.total}</td><td>-</td></tr>{breakdown.groups.map((group)=><React.Fragment key={group.label}><tr className="groupRow"><td>⌄&nbsp; {group.label}</td><td><i className="bar"><i style={{width:`${group.percent}%`}}/></i>{group.total} ({group.percent}%)</td><td>-</td></tr>{group.children.map((child)=><tr className="childRow" key={`${group.label}-${child.label}`}><td>{child.label}</td><td><i className="dotBar">{Array.from({length:Math.min(child.total,16)}).map((_,i)=><i key={i}/>)}</i>{child.total} ({child.percent}%)</td><td>-</td></tr>)}</React.Fragment>)}</tbody></table></section>;
+  const groups = breakdown?.groups || [];
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set(groups.map((group) => group.label)));
+  const setAllGroups = (expanded) => setExpandedGroups(new Set(expanded ? groups.map((group) => group.label) : []));
+  const toggleGroup = (label) => setExpandedGroups((current) => {
+    const next = new Set(current);
+    next.has(label) ? next.delete(label) : next.add(label);
+    return next;
+  });
+  const actions = <span className="panelActions"><button type="button" onClick={() => setAllGroups(false)}>Collapse all</button><button type="button" onClick={() => setAllGroups(true)}>Expand all</button></span>;
+
+  return <CollapsiblePanel title="Breakdown" actions={actions}><table className="dataTable"><thead><tr><th>Metrics</th><th>Total</th><th>Trend</th></tr></thead><tbody><tr className="highlightRow"><td><span className="caretPlaceholder">⌄</span><i className="legendDot remaining"/> Remaining work</td><td>{breakdown?.total || 0}</td><td>-</td></tr>{groups.map((group)=>{const expanded=expandedGroups.has(group.label);return <React.Fragment key={group.label}><tr className="groupRow"><td><button type="button" className="rowCollapseButton" aria-expanded={expanded} onClick={()=>toggleGroup(group.label)}><Caret expanded={expanded}/>{group.label}</button></td><td><i className="bar"><i style={{width:`${group.percent}%`}}/></i>{group.total} ({group.percent}%)</td><td>-</td></tr>{expanded&&group.children.map((child)=><tr className="childRow" key={`${group.label}-${child.label}`}><td>{child.label}</td><td><i className="dotBar">{Array.from({length:Math.min(child.total,16)}).map((_,i)=><i key={i}/>)}</i>{child.total} ({child.percent}%)</td><td>-</td></tr>)}</React.Fragment>;})}</tbody></table></CollapsiblePanel>;
 }
 
 function IssuesPanel({ issues }) {
-  return <section className="bottomPanel"><div className="panelTitle">⌄&nbsp; Remaining work ({issues.length}): <i className="legendDot remaining"/> Remaining work</div><div className="subTitle">Issues ↗</div><table className="dataTable"><thead><tr><th>Key</th><th>Summary</th><th>Issue count</th><th>Assignee</th><th>Status</th></tr></thead><tbody>{issues.map((issue)=><tr key={issue.key}><td><a href={issue.url}>{issue.key}</a></td><td>{issue.summary}</td><td><span className="countPill">1</span></td><td>◉ {issue.assignee}</td><td><span className="statusPill">{issue.status}</span></td></tr>)}</tbody></table></section>;
+  return <CollapsiblePanel title={<>Remaining work ({issues.length}): <i className="legendDot remaining"/> Remaining work</>}><div className="subTitle">Issues ↗</div><table className="dataTable"><thead><tr><th>Key</th><th>Summary</th><th>Issue count</th><th>Assignee</th><th>Status</th></tr></thead><tbody>{issues.map((issue)=><tr key={issue.key}><td><a href={issue.url}>{issue.key}</a></td><td>{issue.summary}</td><td><span className="countPill">1</span></td><td>◉ {issue.assignee}</td><td><span className="statusPill">{issue.status}</span></td></tr>)}</tbody></table></CollapsiblePanel>;
+}
+
+function SettingsSection({ title, initiallyExpanded = true, children }) {
+  const [expanded, setExpanded] = useState(initiallyExpanded);
+  return <section className="settingsSection"><button type="button" className="accordion" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}><Caret expanded={expanded}/>{title}</button>{expanded && <div className="settingsSectionContent">{children}</div>}</section>;
 }
 
 function Settings({ config, setConfig, onApply }) {
   const update = (name,value) => setConfig((current)=>({...current,[name]:value}));
-  return <aside className="settings"><div className="chartTypes"><button>⌁<small>Burnup chart</small></button><button className="selected">⌁<small>Burndown chart</small></button><button>⌁<small>Daily burndown</small></button></div>
-    <div className="accordion">›&nbsp; Data source</div><label>Custom JQL<textarea value={config.jql} onChange={(e)=>update('jql',e.target.value)}/></label>
-    <div className="accordion">⌄&nbsp; Calculation</div><label>Estimation field<select><option>Issue count</option></select></label><label>Done statuses<select><option>Select...</option></select></label>
-    <div className="accordion">⌄&nbsp; Remaining work</div><label>Remaining work value<div className="segmented"><button className="selected">Auto</button><button>What-if</button></div></label>
-    <div className="accordion">⌄&nbsp; Issue filter</div><label>Issue type<select><option>All standard</option></select></label><button className="primaryButton" onClick={()=>onApply(config)}>Apply settings</button></aside>;
+  return <aside className="settings"><div className="chartTypes"><div className="selectedChartType">⌁<small>Burndown chart</small></div></div>
+    <SettingsSection title="Data source"><label>Custom JQL<textarea value={config.jql} onChange={(e)=>update('jql',e.target.value)}/></label></SettingsSection>
+    <SettingsSection title="Calculation"><label>Estimation field<select disabled><option>Issue count</option></select></label><label>Done statuses<input value={Array.isArray(config.doneStatuses)?config.doneStatuses.join(', '):(config.doneStatuses||'')} onChange={(e)=>update('doneStatuses',e.target.value)} placeholder="Done, Closed, Resolved"/></label></SettingsSection>
+    <SettingsSection title="Remaining work"><label>Remaining work value<div className="selectedSetting">Auto</div></label></SettingsSection>
+    <SettingsSection title="Issue filter"><label>Filter source<div className="selectedSetting">Custom JQL above</div></label></SettingsSection>
+    <button type="button" className="primaryButton" onClick={()=>onApply(config)}>Apply settings</button></aside>;
 }
 
 function View() {
   const [data,setData]=useState(MOCK_DATA), [config,setConfig]=useState(DEFAULT_CONFIG), [loading,setLoading]=useState(!isLocalPreview()), [error,setError]=useState(''), [openMenu,setOpenMenu]=useState(''), [settings,setSettings]=useState(false);
-  async function loadData(nextConfig=config) { setLoading(true); setError(''); try { if(isLocalPreview()){setData({...MOCK_DATA,config:nextConfig});return;} const {invoke}=await import('@forge/bridge'); setData(await invoke('getBurndownData',{config:nextConfig})); } catch(err){setError(err.message||String(err));} finally{setLoading(false);} }
+  async function loadData(nextConfig=config) {
+    setLoading(true);
+    setError('');
+    try {
+      if(isLocalPreview()){setData({...MOCK_DATA,config:nextConfig});return;}
+      const {invoke}=await import('@forge/bridge');
+      const result=await invoke('getBurndownData',{config:nextConfig});
+      if(!result || !Array.isArray(result.series)) throw new Error('Jira returned an invalid burndown response.');
+      setData(result);
+    } catch(err){setError(err.message||String(err));} finally{setLoading(false);}
+  }
   useEffect(()=>{ if(isLocalPreview())return; import('@forge/bridge').then(({view})=>view.getContext()).then((context)=>{const saved=context?.extension?.gadgetConfiguration||{};const next={...DEFAULT_CONFIG,...saved};setConfig(next);loadData(next);}).catch(()=>loadData(DEFAULT_CONFIG)); },[]);
-  const metrics=data.metrics, legend=useMemo(()=>[['Completed work',metrics.completedWork,'completed'],['Active interval',metrics.activeInterval,'active'],['Remaining work',metrics.remainingWork,'remaining'],['Total work',metrics.totalWork,'total']], [metrics]);
+  const metrics=data.metrics||MOCK_DATA.metrics, legend=useMemo(()=>[['Completed work',metrics.completedWork,'completed'],['Active interval',metrics.activeInterval,'active'],['Remaining work',metrics.remainingWork,'remaining'],['Total work',metrics.totalWork,'total']], [metrics]);
   if(error) return <main className="page errorState"><h2>Could not load burndown data</h2><p>{error}</p><button onClick={()=>loadData()}>Retry</button></main>;
-  return <main className="page"><header className="topBar"><div><h1>Individual burndown chart for TWD Complaint Handling</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><button className="iconButton">?</button><button className="iconButton">•••</button><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
+  return <main className="page"><header className="topBar"><div><h1>Individual burndown chart for TWD Complaint Handling</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
     <div className={`workspace ${settings?'withSettings':''}`}><div className="content"><div className="toolbar"><div className="rangeControls"><Menu name={`Last → ${config.rangeCount} ${config.rangeUnit}`} openMenu={openMenu} setOpenMenu={setOpenMenu}><b>Last</b><label>Intervals<input value={config.rangeCount} onChange={(e)=>setConfig({...config,rangeCount:e.target.value})}/></label><button className="primaryButton" onClick={()=>{setOpenMenu('');loadData();}}>Apply</button></Menu><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><label>Interval count<input defaultValue="5"/></label><label>Capacity allocation coefficient<input defaultValue="100%"/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" defaultChecked/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>
     <div className="metricGrid"><div className="metricCard"><span>Completed ⓘ</span><b>{metrics.completedPercent}%</b></div><div className="metricCard"><span>Scope change ⓘ</span><b>{metrics.scopeChange}<small> total&nbsp; {Math.max(1,Math.round(metrics.scopeChange/12))} avg/bi-week</small></b></div></div>
-    <div className="chartHeader"><div><b>Burndown chart</b><span className="axisLabel">↑ Issue count</span></div><div className="legend">{legend.map(([label,value,type])=><span key={label}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div><span className="weeks">Weeks →</span></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}<Chart series={data.series} config={config}/>
-    {config.showForecast!==false&&<ForecastPanel rows={data.forecast||[]}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;
+    <div className="chartHeader"><div><b>Burndown chart</b><span className="axisLabel">↑ Issue count</span></div><div className="legend">{legend.map(([label,value,type])=><span key={label}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div><span className="weeks">Weeks →</span></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config}/>}
+    {config.showForecast!==false&&<ForecastPanel rows={data.forecast||[]}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown||{total:0,groups:[]}}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;
 }
 export default View;
