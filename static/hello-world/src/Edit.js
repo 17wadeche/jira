@@ -22,6 +22,10 @@ const DEFAULT_CONFIG = {
   targetLabel: ''
 };
 
+// Forge may HTML-escape ampersands while transporting gadget configuration.
+// Decode it before displaying or re-saving the JQL so the Jira API receives valid syntax.
+const decodeJql = (value) => String(value || '').replace(/&(?:amp|#38|#x26);/gi, '&');
+
 function readConfigFromContext(context) {
   return (
     context?.extension?.gadgetConfiguration ||
@@ -40,7 +44,8 @@ function Edit() {
       .then((context) => {
         setConfig({
           ...DEFAULT_CONFIG,
-          ...readConfigFromContext(context)
+          ...readConfigFromContext(context),
+          jql: decodeJql(readConfigFromContext(context).jql || DEFAULT_CONFIG.jql)
         });
       })
       .finally(() => setLoading(false));
@@ -62,6 +67,7 @@ function Edit() {
 
     view.submit({
       ...config,
+      jql: decodeJql(config.jql),
       rangeCount: Number(config.rangeCount || 6),
       forecastIntervals: Number(config.forecastIntervals || 5),
       capacityCoefficient: Number(config.capacityCoefficient || 100)

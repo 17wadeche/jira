@@ -34,6 +34,19 @@ function normalize(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function decodeHtmlEntities(value) {
+  // Dashboard configuration can arrive HTML-escaped by its host context. Jira's
+  // JQL API expects the original characters, so decode the small, predictable
+  // set of entities that can legitimately appear in a JQL expression.
+  const namedEntities = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>' };
+  return String(value || '').replace(/&(#x[0-9a-f]+|#\d+|amp|quot|apos|lt|gt);/gi, (entity, code) => {
+    if (code[0] !== '#') return namedEntities[code.toLowerCase()];
+    const radix = code[1].toLowerCase() === 'x' ? 16 : 10;
+    const digits = radix === 16 ? code.slice(2) : code.slice(1);
+    return String.fromCodePoint(Number.parseInt(digits, radix));
+  });
+}
+
 async function jiraJson(path, options = {}) {
   // asUser() ensures Jira performs its normal permission checks for the person
   // viewing the dashboard. The gadget never receives issues they cannot browse.
@@ -226,7 +239,7 @@ function buildBreakdown(issues) {
 }
 
 resolver.define('getBurndownData', async ({ payload }) => {
-  const config = { ...DEFAULT_CONFIG, ...(payload?.config || {}), jql: payload?.jql || payload?.config?.jql || DEFAULT_CONFIG.jql };
+  const config = { ...DEFAULT_CONFIG, ...(payload?.config || {}), jql: decodeHtmlEntities(payload?.jql || payload?.config?.jql || DEFAULT_CONFIG.jql) };
   const completionField = await findCompletionField();
   const rawIssues = await searchIssues(config.jql, completionField.id);
   const historiesByIssueId = await fetchCompletionHistories(rawIssues, completionField.id);
