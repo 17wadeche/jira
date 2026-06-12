@@ -5,7 +5,6 @@ const resolver = new Resolver();
 
 const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval"',
-  doneStatuses: ['Done', 'Closed', 'Resolved', 'Completed', 'Approved', 'Business Approved'],
   rangeCount: 6,
   rangeUnit: 'biweeks',
   groupBy: 'weekly',
@@ -35,14 +34,6 @@ function normalize(value) {
   return String(value || '').trim().toLowerCase();
 }
 
-function parseDoneStatuses(value) {
-  if (Array.isArray(value)) return value;
-  return String(value || DEFAULT_CONFIG.doneStatuses.join(','))
-    .split(',')
-    .map((status) => status.trim())
-    .filter(Boolean);
-}
-
 async function jiraJson(path, options = {}) {
   // asUser() ensures Jira performs its normal permission checks for the person
   // viewing the dashboard. The gadget never receives issues they cannot browse.
@@ -58,15 +49,35 @@ async function jiraJson(path, options = {}) {
   return response.json();
 }
 
-async function searchIssues(jql) {
+const COMPLETION_FIELD_NAME = 'Business Tested & Approved';
+const COMPLETION_FROM_VALUE = 'Reviewing';
+const COMPLETION_TO_VALUE = 'Ready for Review (Demoed)';
+
+async function findCompletionField() {
+  // Jira custom-field IDs vary between sites. Looking up the ID by its stable,
+  // customer-facing name keeps this single-site app readable without hard-coding
+  // an opaque customfield_12345 value in source control.
+  const fields = await jiraJson(route`/rest/api/3/field`);
+  const field = fields.find((candidate) => candidate.name === COMPLETION_FIELD_NAME);
+
+  if (!field) {
+    throw new Error(`Jira field "${COMPLETION_FIELD_NAME}" was not found.`);
+  }
+
+  return field;
+}
+
+async function searchIssues(jql, completionFieldId) {
   const issues = [];
   let nextPageToken;
 
   do {
+    // These are the only Jira fields needed to calculate the chart, group the
+    // remaining work, and render the issue table requested by the customer.
     const body = {
       jql,
       maxResults: 100,
-      fields: ['summary', 'status', 'issuetype', 'created', 'updated', 'resolutiondate', 'assignee', 'parent']
+      fields: ['summary', completionFieldId, 'assignee', 'parent', 'updated', 'created', 'issuetype']
     };
     if (nextPageToken) body.nextPageToken = nextPageToken;
 
@@ -83,21 +94,55 @@ async function searchIssues(jql) {
   return issues;
 }
 
-function findCompletedDate(issue, histories, doneStatuses) {
-  const doneSet = new Set(doneStatuses.map(normalize));
-  const sorted = [...histories].sort((a, b) => new Date(a.created) - new Date(b.created));
+async function fetchCompletionHistories(issues, completionFieldId) {
+  if (!issues.length) return new Map();
 
-  for (const history of sorted) {
-    for (const item of history.items || []) {
-      if (item.field === 'status' && doneSet.has(normalize(item.toString))) return history.created;
+  const historiesByIssueId = new Map();
+  let nextPageToken;
+
+  do {
+    // Bulk-fetching the one relevant field's history avoids making a separate
+    // changelog request for every issue and keeps large dashboard filters fast.
+    const body = {
+      issueIdsOrKeys: issues.map((issue) => issue.id),
+      fieldIds: [completionFieldId],
+      maxResults: 1000
+    };
+    if (nextPageToken) body.nextPageToken = nextPageToken;
+
+    const page = await jiraJson(route`/rest/api/3/changelog/bulkfetch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    for (const issueChangeLog of page.issueChangeLogs || []) {
+      const current = historiesByIssueId.get(issueChangeLog.issueId) || [];
+      historiesByIssueId.set(issueChangeLog.issueId, current.concat(issueChangeLog.changeHistories || []));
     }
-  }
 
-  if (doneSet.has(normalize(issue.fields?.status?.name))) {
-    return issue.fields?.resolutiondate || issue.fields?.updated || issue.fields?.created;
-  }
+    nextPageToken = page.nextPageToken;
+  } while (nextPageToken);
 
-  return null;
+  return historiesByIssueId;
+}
+
+function findCompletedDate(issue, histories, completionFieldId) {
+  const hasRequestedTransition = histories.some((history) => (history.items || []).some((item) => (
+    item.fieldId === completionFieldId &&
+    normalize(item.fromString) === normalize(COMPLETION_FROM_VALUE) &&
+    normalize(item.toString) === normalize(COMPLETION_TO_VALUE)
+  )));
+
+  // Per the customer's rule, Updated supplies the completion date after the
+  // requested Business Tested & Approved transition has been confirmed.
+  return hasRequestedTransition ? issue.fields?.updated || null : null;
+}
+
+function displayFieldValue(value) {
+  if (Array.isArray(value)) return value.map(displayFieldValue).filter(Boolean).join(', ');
+  if (value && typeof value === 'object') return value.value || value.name || value.displayName || '';
+  return String(value || '');
 }
 
 function buildSeries(issues, config) {
@@ -182,29 +227,31 @@ function buildBreakdown(issues) {
 
 resolver.define('getBurndownData', async ({ payload }) => {
   const config = { ...DEFAULT_CONFIG, ...(payload?.config || {}), jql: payload?.jql || payload?.config?.jql || DEFAULT_CONFIG.jql };
-  const doneStatuses = parseDoneStatuses(config.doneStatuses);
-  const rawIssues = await searchIssues(config.jql);
+  const completionField = await findCompletionField();
+  const rawIssues = await searchIssues(config.jql, completionField.id);
+  const historiesByIssueId = await fetchCompletionHistories(rawIssues, completionField.id);
 
-  // The enhanced search response already contains everything needed for this
-  // dashboard. Avoiding a separate changelog request for every issue is important:
-  // a large saved filter can otherwise exceed the Forge invocation time limit and
-  // leave the gadget appearing to load forever.
   const issues = rawIssues.map((issue) => ({
     key: issue.key,
     summary: issue.fields?.summary || '',
-    status: issue.fields?.status?.name || 'Unknown',
+    businessTestedApproved: displayFieldValue(issue.fields?.[completionField.id]) || 'Not set',
     assignee: issue.fields?.assignee?.displayName || 'Unassigned',
     issueType: issue.fields?.issuetype?.name || 'Other',
     parent: issue.fields?.parent?.key || 'No parent',
+    updated: issue.fields?.updated,
     created: issue.fields?.created,
-    completedDate: findCompletedDate(issue, [], doneStatuses)
+    completedDate: findCompletedDate(issue, historiesByIssueId.get(issue.id) || [], completionField.id)
   }));
 
   const chart = buildSeries(issues, config);
   const remainingIssues = issues.filter((issue) => !issue.completedDate).map((issue) => ({ ...issue, url: `/browse/${issue.key}` }));
   return {
     config,
-    doneStatuses,
+    completionRule: {
+      field: COMPLETION_FIELD_NAME,
+      from: COMPLETION_FROM_VALUE,
+      to: COMPLETION_TO_VALUE
+    },
     issueCount: issues.length,
     ...chart,
     forecast: buildForecast(chart.series),
