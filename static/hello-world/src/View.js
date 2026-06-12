@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import './App.css';
 
 const DEFAULT_CONFIG = {
-  jql: 'filter = "Replan - Business Testing & Approval"', rangeCount: 6, rangeUnit: 'biweeks', groupBy: 'weekly',
+  jql: 'filter = "Replan - Business Testing & Approval"', rangeMode: 'last', rangeCount: 6, rangeUnit: 'biweeks', sinceDate: '', fixedFrom: '', fixedTo: '', groupBy: 'weekly',
   showCompleted: true, showRemaining: true, showTotal: true, showValueLabels: true, showForecast: true,
   forecastIntervals: 5, capacityCoefficient: 100, scenarioMax: true, scenarioAverage: true, scenarioMin: true,
   showBreakdown: true, showRemainingIssues: true, assignee: 'all'
@@ -89,6 +89,50 @@ function Menu({ name, openMenu, setOpenMenu, children }) {
   return <div className="menuWrap"><button className={`toolButton ${openMenu===name?'selected':''}`} onClick={() => setOpenMenu(openMenu===name?'':name)}>{displayValue(name)}⌄</button>{openMenu===name && <div className={`popover ${name}Popover`}>{children}</div>}</div>;
 }
 
+function rangeButtonLabel(config) {
+  if (config.rangeMode === 'since') return config.sinceDate ? `Since → ${config.sinceDate}` : 'Since';
+  if (config.rangeMode === 'fixed') return config.fixedFrom && config.fixedTo ? `Fixed → ${config.fixedFrom} – ${config.fixedTo}` : 'Fixed';
+  return `Last → ${config.rangeCount} ${config.rangeUnit === 'biweeks' ? 'Bi-weeks' : displayValue(config.rangeUnit)}`;
+}
+
+function RangeMenu({ config, openMenu, setOpenMenu, onApply }) {
+  // Keep edits inside the popover until Apply is selected. This makes Cancel safe
+  // and mirrors Jira's native date-range controls rather than changing the chart
+  // while a viewer is still choosing dates.
+  const [draft, setDraft] = useState(config);
+  const isOpen = openMenu === 'range';
+
+  useEffect(() => {
+    if (isOpen) setDraft(config);
+  }, [isOpen, config]);
+
+  const update = (name, value) => setDraft((current) => ({ ...current, [name]: value }));
+  const valid = draft.rangeMode === 'since'
+    ? Boolean(draft.sinceDate)
+    : draft.rangeMode === 'fixed'
+      ? Boolean(draft.fixedFrom && draft.fixedTo && draft.fixedFrom <= draft.fixedTo)
+      : Number(draft.rangeCount) > 0;
+
+  return <div className="menuWrap">
+    <button type="button" className={`toolButton ${isOpen ? 'selected' : ''}`} onClick={() => setOpenMenu(isOpen ? '' : 'range')}>{rangeButtonLabel(config)}⌄</button>
+    {isOpen && <div className="popover rangePopover">
+      <div className="rangeTabs" role="tablist" aria-label="Date range type">
+        {['last', 'since', 'fixed'].map((mode) => <button type="button" role="tab" aria-selected={draft.rangeMode === mode} className={draft.rangeMode === mode ? 'active' : ''} key={mode} onClick={() => update('rangeMode', mode)}>{displayValue(mode)}</button>)}
+      </div>
+      {draft.rangeMode === 'last' && <div className="rangeForm lastRangeForm">
+        <label><span className="srOnly">Number of intervals</span><input type="number" min="1" value={draft.rangeCount} onChange={(event) => update('rangeCount', event.target.value)}/></label>
+        <label><span className="srOnly">Range unit</span><select value={String(draft.rangeUnit).toLowerCase()} onChange={(event) => update('rangeUnit', event.target.value)}><option value="days">Days</option><option value="weeks">Weeks</option><option value="biweeks">Bi-weeks</option><option value="months">Months</option><option value="quarters">Quarters</option></select></label>
+      </div>}
+      {draft.rangeMode === 'since' && <div className="rangeForm"><label><span className="srOnly">Since</span><input type="date" aria-label="Since" value={draft.sinceDate} onChange={(event) => update('sinceDate', event.target.value)}/></label></div>}
+      {draft.rangeMode === 'fixed' && <div className="rangeForm fixedRangeForm">
+        <label><span className="srOnly">From</span><input type="date" aria-label="From" value={draft.fixedFrom} max={draft.fixedTo || undefined} onChange={(event) => update('fixedFrom', event.target.value)}/></label>
+        <label><span className="srOnly">To</span><input type="date" aria-label="To" value={draft.fixedTo} min={draft.fixedFrom || undefined} onChange={(event) => update('fixedTo', event.target.value)}/></label>
+      </div>}
+      <div className="popoverActions"><button type="button" onClick={() => setOpenMenu('')}>Cancel</button><button type="button" className="primaryButton" disabled={!valid} onClick={() => { setOpenMenu(''); onApply(draft); }}>Apply</button></div>
+    </div>}
+  </div>;
+}
+
 function Caret({ expanded }) {
   return <span className="caret" aria-hidden="true">{expanded ? '⌄' : '›'}</span>;
 }
@@ -164,9 +208,9 @@ function View() {
   const chartTitle = selectedPerson ? `Individual Burndown Chart For ${selectedPerson}` : 'Burndown Chart For All People';
   if(error) return <main className="page errorState"><h2>Could not load burndown data</h2><p>{error}</p><button onClick={()=>loadData()}>Retry</button></main>;
   return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><label className="peopleFilter"><span>People</span><select value={config.assignee||'all'} onChange={(event)=>loadData({...config,assignee:event.target.value})}><option value="all">All people</option>{assignees.map((assignee)=><option value={assignee} key={assignee}>{assignee}</option>)}</select></label><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
-    <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><Menu name={`Last → ${config.rangeCount} ${config.rangeUnit === 'biweeks' ? 'Bi-weeks' : displayValue(config.rangeUnit)}`} openMenu={openMenu} setOpenMenu={setOpenMenu}><div className="rangeTabs"><button type="button" className="active">Last</button><button type="button" disabled>Current</button><button type="button" disabled>Since</button><button type="button" disabled>Fixed</button></div><div className="rangeForm"><label><span className="srOnly">Number of intervals</span><input type="number" min="1" value={config.rangeCount} onChange={(e)=>setConfig({...config,rangeCount:e.target.value})}/></label><label><span className="srOnly">Range unit</span><select value={String(config.rangeUnit).toLowerCase()} onChange={(e)=>setConfig({...config,rangeUnit:e.target.value})}><option value="days">Days</option><option value="weeks">Weeks</option><option value="biweeks">Bi-weeks</option><option value="months">Months</option><option value="quarters">Quarters</option></select></label></div><div className="popoverActions"><button type="button" onClick={()=>setOpenMenu('')}>Cancel</button><button type="button" className="primaryButton" onClick={()=>{setOpenMenu('');loadData();}}>Apply</button></div></Menu><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Tune how far the forecast extends and the team capacity applied to it.</p><label>Interval count<input type="number" min="1" value={config.forecastIntervals} onChange={(e)=>setConfig({...config,forecastIntervals:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
+    <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><RangeMenu config={config} openMenu={openMenu} setOpenMenu={setOpenMenu} onApply={loadData}/><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Tune how far the forecast extends and the team capacity applied to it.</p><label>Interval count<input type="number" min="1" value={config.forecastIntervals} onChange={(e)=>setConfig({...config,forecastIntervals:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
     <div className="metricGrid"><div className="metricCard"><span>Completed</span><b>{metrics.completedPercent}%</b></div><div className="metricCard scopeCard" title="Scope change is the net change in total work from the first interval to the latest interval. Positive means work was added; negative means work was removed."><span>Scope change <i className="infoIcon" aria-label="Scope change is the net change in total work from the first interval to the latest interval">?</i></span><b>{metrics.scopeChange}<small> net work change&nbsp; · &nbsp;{Math.round(metrics.scopeChange/Math.max(1,(data.series||[]).length-1))} avg/interval</small></b></div></div>
-    <div className="chartHeader"><div><b>Burndown chart</b></div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b>{type==='active'&&<i className="infoIcon" aria-label="Completed this interval means work completed during the latest reporting interval">?</i>}</span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast}/>}
+    <div className="chartHeader"><div><b>Burndown chart</b></div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast}/>}
     {config.showForecast!==false&&<ForecastPanel rows={(data.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown||{total:0,groups:[]}}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;
 }
 export default View;

@@ -5,7 +5,11 @@ import './App.css';
 const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval"',
   rangeCount: 6,
+  rangeMode: 'last',
   rangeUnit: 'biweeks',
+  sinceDate: '',
+  fixedFrom: '',
+  fixedTo: '',
   groupBy: 'weekly',
   showCompleted: true,
   showRemaining: true,
