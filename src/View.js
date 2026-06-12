@@ -16,6 +16,22 @@ const MOCK_DATA = {
     ['Feb 29 - Mar 6',121,34,87],['Mar 7 - Mar 13',121,34,87],['Mar 14 - Mar 20',121,52,69],['Mar 21 - Mar 27',121,52,69],
     ['Mar 28 - Apr 3',121,64,57],['Apr 4 - Apr 10',168,64,104],['Apr 11 - Apr 17',168,92,76],['Apr 18 - Apr 24',168,92,47]
   ].map(([label,total,completed,remaining]) => ({ label,total,completed,remaining })),
+  personSeries: [
+    { assignee:'Joe Alpha', series:[
+      [60,0,61],[60,6,56],[60,6,56],[60,10,53],[60,20,44],[60,20,44],[60,30,35],[60,30,35],[60,36,29],[84,36,52],[84,50,38],[84,50,24]
+    ].map(([total,completed,remaining], index) => ({ label:`Interval ${index + 1}`,total,completed,remaining })), forecast:[
+      { label:'Max',key:'max',type:'Auto',velocity:14,completeDate:'05/08/2024',intervals:3 },
+      { label:'Average',key:'average',type:'Auto',velocity:7,completeDate:'06/05/2024',intervals:5 },
+      { label:'Min',key:'min',type:'Auto',velocity:4,completeDate:'06/26/2024',intervals:8 }
+    ] },
+    { assignee:'Sam Beta', series:[
+      [61,0,60],[61,4,55],[61,4,55],[61,6,52],[61,14,43],[61,14,43],[61,22,34],[61,22,34],[61,28,28],[84,28,52],[84,42,38],[84,42,23]
+    ].map(([total,completed,remaining], index) => ({ label:`Interval ${index + 1}`,total,completed,remaining })), forecast:[
+      { label:'Max',key:'max',type:'Auto',velocity:14,completeDate:'05/15/2024',intervals:3 },
+      { label:'Average',key:'average',type:'Auto',velocity:6,completeDate:'06/12/2024',intervals:7 },
+      { label:'Min',key:'min',type:'Auto',velocity:2,completeDate:'08/28/2024',intervals:21 }
+    ] }
+  ],
   forecast: [
     { label:'Max',key:'max',type:'Auto',velocity:28,completeDate:'05/08/2024',intervals:2 },
     { label:'Average',key:'average',type:'Auto',velocity:8,completeDate:'06/05/2024',intervals:6 },
@@ -55,9 +71,10 @@ function Chart({ series, config, forecast, personSeries = [] }) {
   const scenarios = forecast?.length ? forecast : [{key:'max',velocity:28},{key:'average',velocity:8},{key:'min',velocity:12}];
   const activeScenarios = scenarios.filter((scenario) => config[`scenario${displayValue(scenario.key).replace(/\s/g, '')}`] !== false);
   const individualMode = personSeries.length > 1;
-  const activeScenarioKeys = new Set(activeScenarios.map((scenario) => scenario.key));
-  const forecastLengths = individualMode
-    ? personSeries.flatMap((person) => (person.forecast || []).filter((scenario) => activeScenarioKeys.has(scenario.key)).map((scenario) => makeForecast(person.series, scenario.velocity).length))
+  const personScenarios = (person) => activeScenarios.map((scenario) =>
+    (person.forecast || []).find((personScenario) => personScenario.key === scenario.key) || scenario
+  );  const forecastLengths = individualMode
+    ? personSeries.flatMap((person) => personScenarios(person).map((scenario) => makeForecast(person.series, scenario.velocity).length))
     : activeScenarios.map((scenario) => makeForecast(series, scenario.velocity).length);
   const longest = config.showForecast !== false && forecastLengths.length ? Math.max(...forecastLengths) : 0;
   const personValues = personSeries.flatMap((person) => person.series.flatMap((point) => [point.total, point.completed, point.remaining]));
@@ -80,8 +97,21 @@ function Chart({ series, config, forecast, personSeries = [] }) {
     {series.map((point,index) => <text key={point.label} x={x(index)} y={height-54} className="xLabel" transform={`rotate(-43 ${x(index)} ${height-54})`}>{point.label}</text>)}
     {visible('total') && <path d={path(series,'total')} className="line totalLine"/>}
     {visible('completed') && <path d={path(series,'completed')} className="line completedLine"/>}
-        {visible('remaining') && !individualMode && <path d={path(series,'remaining')} className="line remainingLine"/>}
-    {individualMode && visible('remaining') && personSeries.map((person, personIndex) => <g key={person.assignee} className={`personSeries personSeries${personIndex % 8}`}><path d={path(person.series,'remaining')} className="line personLine"/><text x={x(person.series.length-1)+6} y={y(person.series[person.series.length-1]?.remaining || 0)-6} className="personLineLabel">{person.assignee}</text>{config.showForecast !== false && (person.forecast || []).filter((scenario) => activeScenarioKeys.has(scenario.key)).map((scenario) => { const points=makeForecast(person.series,scenario.velocity); return <path key={scenario.key} d={`M ${x(person.series.length-1)} ${y(person.series[person.series.length-1]?.remaining || 0)} ${path(points,'remaining',person.series.length).replace('M','L')}`} className={`line personForecastLine ${scenario.key}Line`}/>; })}</g>)}
+    {visible('remaining') && <path d={path(series,'remaining')} className="line remainingLine"/>}
+    {individualMode && personSeries.map((person, personIndex) => {
+      const lastPersonPoint = person.series[person.series.length - 1] || { completed:0, remaining:0 };
+      return <g key={person.assignee} className={`personSeries personSeries${personIndex % 8}`}>
+        {/* A person's solid remaining line and dashed completed line deliberately
+            share one color, making identity and work state readable at once. */}
+        {visible('remaining') && <path d={path(person.series,'remaining')} className="line personLine personRemainingLine"/>}
+        {visible('completed') && <path d={path(person.series,'completed')} className="line personLine personCompletedLine"/>}
+        {visible('remaining') && <text x={x(person.series.length-1)+6} y={y(lastPersonPoint.remaining)-6} className="personLineLabel">{person.assignee}</text>}
+        {config.showForecast !== false && personScenarios(person).map((scenario) => {
+          const points = makeForecast(person.series, scenario.velocity);
+          return <path key={scenario.key} d={`M ${x(person.series.length-1)} ${y(lastPersonPoint.remaining)} ${path(points,'remaining',person.series.length).replace('M','L')}`} className={`line personForecastLine ${scenario.key}Line`}/>;
+        })}
+      </g>;
+    })} 
     {!individualMode && config.showForecast !== false && activeScenarios.map((scenario) => { const points=makeForecast(series,scenario.velocity); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}</g>; })}
     {series.map((point,index) => <g key={`${point.label}-dots`}>
       {['total','completed','remaining'].map((field) => visible(field) && !(individualMode && field === 'remaining') && <g key={field}><circle cx={x(index)} cy={y(point[field])} r="4" className={`dot ${field}Dot`}/>{config.showValueLabels !== false && <text x={x(index)+5} y={y(point[field])-7} className={`${field}Value valueLabel`}>{point[field]}</text>}</g>)}
