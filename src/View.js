@@ -5,7 +5,7 @@ const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval"', rangeMode: 'last', rangeCount: 6, rangeUnit: 'biweeks', sinceDate: '', fixedFrom: '', fixedTo: '', groupBy: 'weekly',
   showCompleted: true, showRemaining: true, showTotal: true, showValueLabels: true, showForecast: true,
   forecastIntervals: 5, capacityCoefficient: 100, scenarioMax: true, scenarioAverage: true, scenarioMin: true,
-  showBreakdown: true, showRemainingIssues: true, assignee: 'all'
+  showBreakdown: true, showRemainingIssues: true, assignees: []
 };
 
 const MOCK_DATA = {
@@ -27,9 +27,9 @@ const MOCK_DATA = {
     { label:'No parent',total:10,percent:21,children:[{label:'Task',total:10,percent:100}] }
   ]},
   remainingIssues: [
-    {key:'TWD-47',summary:'Validate complaint outcome and customer response',businessTestedApproved:'Reviewing',assignee:'Joe Alpha',parent:'TWD-12',updated:'2024-04-23T15:30:00.000Z',url:'#'},
-    {key:'TWD-51',summary:'Complete business approval evidence',businessTestedApproved:'Not set',assignee:'Joe Alpha',parent:'TWD-12',updated:'2024-04-22T12:15:00.000Z',url:'#'},
-    {key:'TWD-58',summary:'Prepare final complaint resolution',businessTestedApproved:'Reviewing',assignee:'Unassigned',parent:'No parent',updated:'2024-04-19T09:45:00.000Z',url:'#'}
+    {key:'TWD-47',summary:'Validate complaint outcome and customer response',businessTestedApproved:'Reviewing',assignee:'Joe Alpha',parent:'TWD-12',updated:'2024-04-23T15:30:00.000Z',url:'/browse/TWD-47'},
+    {key:'TWD-51',summary:'Complete business approval evidence',businessTestedApproved:'Not set',assignee:'Joe Alpha',parent:'TWD-12',updated:'2024-04-22T12:15:00.000Z',url:'/browse/TWD-51'},
+    {key:'TWD-58',summary:'Prepare final complaint resolution',businessTestedApproved:'Reviewing',assignee:'Unassigned',parent:'No parent',updated:'2024-04-19T09:45:00.000Z',url:'/browse/TWD-58'}
   ]
 };
 
@@ -171,7 +171,33 @@ function BreakdownPanel({ breakdown }) {
 
 function IssuesPanel({ issues }) {
   const formatUpdated = (value) => value ? new Date(value).toLocaleString() : 'Not available';
-  return <CollapsiblePanel title={<>Remaining work ({issues.length}): <i className="legendDot remaining"/> Remaining work</>}><table className="dataTable"><thead><tr><th>Key</th><th>Summary</th><th>Business Tested &amp; Approved</th><th>Assignee</th><th>Parent</th><th>Updated</th></tr></thead><tbody>{issues.map((issue)=><tr key={issue.key}><td><a href={issue.url}>{issue.key}</a></td><td>{issue.summary}</td><td><span className="statusPill">{issue.businessTestedApproved}</span></td><td>◉ {issue.assignee}</td><td>{issue.parent}</td><td>{formatUpdated(issue.updated)}</td></tr>)}</tbody></table></CollapsiblePanel>;
+  const openIssue = async (event, issueUrl) => {
+    // A relative Jira issue URL cannot be opened directly from the Forge Custom UI iframe.
+    // Forge's router safely asks the Jira host page to perform the same-site navigation.
+    if (isLocalPreview()) return;
+    event.preventDefault();
+    const { router } = await import('@forge/bridge');
+    await router.navigate(issueUrl);
+  };
+  return <CollapsiblePanel title={<>Remaining work ({issues.length}): <i className="legendDot remaining"/> Remaining work</>}><table className="dataTable"><thead><tr><th>Key</th><th>Summary</th><th>Business Tested &amp; Approved</th><th>Assignee</th><th>Parent</th><th>Updated</th></tr></thead><tbody>{issues.map((issue)=><tr key={issue.key}><td><a href={issue.url} onClick={(event)=>openIssue(event,issue.url)}>{issue.key}</a></td><td>{issue.summary}</td><td><span className="statusPill">{issue.businessTestedApproved}</span></td><td>◉ {issue.assignee}</td><td>{issue.parent}</td><td>{formatUpdated(issue.updated)}</td></tr>)}</tbody></table></CollapsiblePanel>;
+}
+
+function PeopleFilter({ assignees, selectedAssignees, onChange }) {
+  const [open, setOpen] = useState(false);
+  const allPeopleSelected = selectedAssignees.length === 0;
+  const label = allPeopleSelected
+    ? 'All people'
+    : selectedAssignees.length === 1
+      ? selectedAssignees[0]
+      : `${selectedAssignees.length} people`;
+  const toggleAssignee = (assignee) => {
+    const next = selectedAssignees.includes(assignee)
+      ? selectedAssignees.filter((selected) => selected !== assignee)
+      : [...selectedAssignees, assignee];
+    onChange(next);
+  };
+
+  return <div className="peopleFilter"><span>People</span><div className="menuWrap"><button type="button" className="peopleFilterButton" aria-haspopup="true" aria-expanded={open} onClick={()=>setOpen(!open)}>{label} <span aria-hidden="true">⌄</span></button>{open&&<div className="popover peoplePopover"><label className="checkOption"><input type="checkbox" checked={allPeopleSelected} onChange={()=>onChange([])}/>All people</label>{assignees.map((assignee)=><label className="checkOption" key={assignee}><input type="checkbox" checked={selectedAssignees.includes(assignee)} onChange={()=>toggleAssignee(assignee)}/>{assignee}</label>)}</div>}</div></div>;
 }
 
 function SettingsSection({ title, initiallyExpanded = true, children }) {
@@ -204,11 +230,16 @@ function View() {
   useEffect(()=>{ if(isLocalPreview())return; import('@forge/bridge').then(({view})=>view.getContext()).then((context)=>{const saved=context?.extension?.gadgetConfiguration||{};const next={...DEFAULT_CONFIG,...saved,jql:decodeJql(saved.jql||DEFAULT_CONFIG.jql)};setConfig(next);loadData(next);}).catch(()=>loadData(DEFAULT_CONFIG)); },[]);
   const metrics=data.metrics||MOCK_DATA.metrics, legend=useMemo(()=>[['Completed work',metrics.completedWork,'completed'],['Completed this interval',metrics.activeInterval,'active'],['Remaining work',metrics.remainingWork,'remaining'],['Total work',metrics.totalWork,'total']], [metrics]);
   const assignees = data.assignees || ['Joe Alpha', 'Unassigned'];
-  const selectedPerson = config.assignee && config.assignee !== 'all' ? config.assignee : '';
-  const chartTitle = selectedPerson ? `Individual Burndown Chart For ${selectedPerson}` : 'Burndown Chart For All People';
+  const selectedAssignees = Array.isArray(config.assignees) && config.assignees.length
+    ? config.assignees
+    : config.assignee && config.assignee !== 'all' ? [config.assignee] : [];
+  const chartTitle = selectedAssignees.length === 0
+    ? 'Burndown Chart For All People'
+    : selectedAssignees.length === 1
+      ? `Individual Burndown Chart For ${selectedAssignees[0]}`
+      : `Burndown Chart For ${selectedAssignees.length} People`;
   if(error) return <main className="page errorState"><h2>Could not load burndown data</h2><p>{error}</p><button onClick={()=>loadData()}>Retry</button></main>;
-  return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><label className="peopleFilter"><span>People</span><select value={config.assignee||'all'} onChange={(event)=>loadData({...config,assignee:event.target.value})}><option value="all">All people</option>{assignees.map((assignee)=><option value={assignee} key={assignee}>{assignee}</option>)}</select></label><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
-    <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><RangeMenu config={config} openMenu={openMenu} setOpenMenu={setOpenMenu} onApply={loadData}/><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Tune how far the forecast extends and the team capacity applied to it.</p><label>Interval count<input type="number" min="1" value={config.forecastIntervals} onChange={(e)=>setConfig({...config,forecastIntervals:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
+  return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><PeopleFilter assignees={assignees} selectedAssignees={selectedAssignees} onChange={(nextAssignees)=>loadData({...config,assignee:'all',assignees:nextAssignees})}/><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>    <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><RangeMenu config={config} openMenu={openMenu} setOpenMenu={setOpenMenu} onApply={loadData}/><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Tune how far the forecast extends and the team capacity applied to it.</p><label>Interval count<input type="number" min="1" value={config.forecastIntervals} onChange={(e)=>setConfig({...config,forecastIntervals:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
     <div className="metricGrid"><div className="metricCard"><span>Completed</span><b>{metrics.completedPercent}%</b></div><div className="metricCard scopeCard" title="Scope change is the net change in total work from the first interval to the latest interval. Positive means work was added; negative means work was removed."><span>Scope change <i className="infoIcon" aria-label="Scope change is the net change in total work from the first interval to the latest interval">?</i></span><b>{metrics.scopeChange}<small> net work change&nbsp; · &nbsp;{Math.round(metrics.scopeChange/Math.max(1,(data.series||[]).length-1))} avg/interval</small></b></div></div>
     <div className="chartHeader"><div><b>Burndown chart</b></div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast}/>}
     {config.showForecast!==false&&<ForecastPanel rows={(data.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown||{total:0,groups:[]}}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;

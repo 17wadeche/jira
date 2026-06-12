@@ -19,7 +19,7 @@ const DEFAULT_CONFIG = {
   showForecast: true,
   showBreakdown: true,
   showRemainingIssues: true,
-  assignee: 'all'
+  assignees: []
 };
 
 function startOfWeek(date) {
@@ -274,8 +274,11 @@ resolver.define('getBurndownData', async ({ payload }) => {
   // Keep the complete assignee list available so the dashboard defaults to an
   // all-people view while still allowing a viewer to focus on one person.
   const assignees = [...new Set(issues.map((issue) => issue.assignee))].sort((a, b) => a.localeCompare(b));
-  const filteredIssues = config.assignee && config.assignee !== 'all'
-    ? issues.filter((issue) => issue.assignee === config.assignee)
+  const selectedAssignees = Array.isArray(config.assignees) && config.assignees.length
+    ? config.assignees
+    : config.assignee && config.assignee !== 'all' ? [config.assignee] : [];
+  const filteredIssues = selectedAssignees.length
+    ? issues.filter((issue) => selectedAssignees.includes(issue.assignee))
     : issues;
   const chart = buildSeries(filteredIssues, config);
   const remainingIssues = filteredIssues.filter((issue) => !issue.completedDate).map((issue) => ({ ...issue, url: `/browse/${issue.key}` }));
