@@ -283,7 +283,10 @@ resolver.define('getBurndownData', async ({ payload }) => {
     : issues;
   const chart = buildSeries(filteredIssues, config);
   const personSeries = selectedAssignees.length > 1
-    ? selectedAssignees.map((assignee) => ({ assignee, series: buildSeries(issues.filter((issue) => issue.assignee === assignee), config).series }))
+    ? selectedAssignees.map((assignee) => {
+      const series = buildSeries(issues.filter((issue) => issue.assignee === assignee), config).series;
+      return { assignee, series, forecast: buildForecast(series) };
+    })
     : [];
   const remainingIssues = filteredIssues.filter((issue) => !issue.completedDate).map((issue) => ({ ...issue, url: `/browse/${issue.key}` }));
   return {

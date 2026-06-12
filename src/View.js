@@ -49,16 +49,20 @@ function makeForecast(series, velocity) {
   return points;
 }
 
-function Chart({ series, config, forecast }) {
+function Chart({ series, config, forecast, personSeries = [] }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const width = 1180, height = 390, padding = { top:36, right:34, bottom:92, left:54 };
   const scenarios = forecast?.length ? forecast : [{key:'max',velocity:28},{key:'average',velocity:8},{key:'min',velocity:12}];
   const activeScenarios = scenarios.filter((scenario) => config[`scenario${displayValue(scenario.key).replace(/\s/g, '')}`] !== false);
-  const positiveVelocities = activeScenarios.map((scenario) => scenario.velocity).filter((velocity) => velocity > 0);
-  const slowestVelocity = positiveVelocities.length ? Math.min(...positiveVelocities) : 1;
-  const longest = config.showForecast !== false && activeScenarios.length ? makeForecast(series, slowestVelocity) : [];
-  const maxY = Math.max(10, ...series.flatMap((point) => [point.total, point.completed, point.remaining]));
-  const count = series.length + longest.length;
+  const individualMode = personSeries.length > 1;
+  const activeScenarioKeys = new Set(activeScenarios.map((scenario) => scenario.key));
+  const forecastLengths = individualMode
+    ? personSeries.flatMap((person) => (person.forecast || []).filter((scenario) => activeScenarioKeys.has(scenario.key)).map((scenario) => makeForecast(person.series, scenario.velocity).length))
+    : activeScenarios.map((scenario) => makeForecast(series, scenario.velocity).length);
+  const longest = config.showForecast !== false && forecastLengths.length ? Math.max(...forecastLengths) : 0;
+  const personValues = personSeries.flatMap((person) => person.series.flatMap((point) => [point.total, point.completed, point.remaining]));
+  const maxY = Math.max(10, ...series.flatMap((point) => [point.total, point.completed, point.remaining]), ...personValues);
+  const count = series.length + longest;
   const xStep = (width - padding.left - padding.right) / Math.max(count - 1, 1);
   const x = (index) => padding.left + index * xStep;
   const y = (value) => padding.top + (height - padding.top - padding.bottom) * (1 - value / maxY);
@@ -76,10 +80,11 @@ function Chart({ series, config, forecast }) {
     {series.map((point,index) => <text key={point.label} x={x(index)} y={height-54} className="xLabel" transform={`rotate(-43 ${x(index)} ${height-54})`}>{point.label}</text>)}
     {visible('total') && <path d={path(series,'total')} className="line totalLine"/>}
     {visible('completed') && <path d={path(series,'completed')} className="line completedLine"/>}
-    {visible('remaining') && <path d={path(series,'remaining')} className="line remainingLine"/>}
-    {config.showForecast !== false && activeScenarios.map((scenario) => { const points=makeForecast(series,scenario.velocity); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}</g>; })}
+        {visible('remaining') && !individualMode && <path d={path(series,'remaining')} className="line remainingLine"/>}
+    {individualMode && visible('remaining') && personSeries.map((person, personIndex) => <g key={person.assignee} className={`personSeries personSeries${personIndex % 8}`}><path d={path(person.series,'remaining')} className="line personLine"/><text x={x(person.series.length-1)+6} y={y(person.series[person.series.length-1]?.remaining || 0)-6} className="personLineLabel">{person.assignee}</text>{config.showForecast !== false && (person.forecast || []).filter((scenario) => activeScenarioKeys.has(scenario.key)).map((scenario) => { const points=makeForecast(person.series,scenario.velocity); return <path key={scenario.key} d={`M ${x(person.series.length-1)} ${y(person.series[person.series.length-1]?.remaining || 0)} ${path(points,'remaining',person.series.length).replace('M','L')}`} className={`line personForecastLine ${scenario.key}Line`}/>; })}</g>)}
+    {!individualMode && config.showForecast !== false && activeScenarios.map((scenario) => { const points=makeForecast(series,scenario.velocity); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}</g>; })}
     {series.map((point,index) => <g key={`${point.label}-dots`}>
-      {['total','completed','remaining'].map((field) => visible(field) && <g key={field}><circle cx={x(index)} cy={y(point[field])} r="4" className={`dot ${field}Dot`}/>{config.showValueLabels !== false && <text x={x(index)+5} y={y(point[field])-7} className={`${field}Value valueLabel`}>{point[field]}</text>}</g>)}
+      {['total','completed','remaining'].map((field) => visible(field) && !(individualMode && field === 'remaining') && <g key={field}><circle cx={x(index)} cy={y(point[field])} r="4" className={`dot ${field}Dot`}/>{config.showValueLabels !== false && <text x={x(index)+5} y={y(point[field])-7} className={`${field}Value valueLabel`}>{point[field]}</text>}</g>)}
     </g>)}
     {hovered && <g className="chartTooltip" pointerEvents="none"><rect x={tooltipX} y={tooltipY} width="238" height="146" rx="4"/><text x={tooltipX+12} y={tooltipY+22} className="tooltipTitle">{hovered.label}</text><text x={tooltipX+12} y={tooltipY+48}>Total work<tspan x={tooltipX+218} textAnchor="end">{hovered.total}</tspan></text><text x={tooltipX+12} y={tooltipY+70}>Remaining work<tspan x={tooltipX+218} textAnchor="end">{hovered.remaining}</tspan></text><text x={tooltipX+12} y={tooltipY+92}>Completed work<tspan x={tooltipX+218} textAnchor="end">{hovered.completed}</tspan></text><text x={tooltipX+12} y={tooltipY+114}>Velocity<tspan x={tooltipX+218} textAnchor="end">{hoveredIndex ? Math.max(0, hovered.completed-series[hoveredIndex-1].completed) : 0}</tspan></text><text x={tooltipX+12} y={tooltipY+136} className="tooltipHint">Current interval details</text></g>}
   </svg>;
@@ -150,9 +155,13 @@ function CollapsiblePanel({ title, children, actions }) {
     {expanded && children}
   </section>;
 }
-
-function ForecastPanel({ rows }) {
-  return <CollapsiblePanel title="Forecast"><table className="dataTable"><thead><tr><th>Label</th><th>Type</th><th>Velocity</th><th>Complete date</th><th>Intervals</th></tr></thead><tbody>{rows.map((row)=><tr key={row.label}><td><i className={`scenarioBox ${row.key}`}/> {row.label}</td><td>{row.type}</td><td>{row.velocity}</td><td>{row.completeDate}</td><td>{row.intervals} weeks</td></tr>)}</tbody></table></CollapsiblePanel>;
+function ForecastPanel({ rows, personSeries = [] }) {
+  // When several people are selected, each line has its own delivery history.
+  // Showing its forecast separately keeps the table consistent with the chart.
+  const individualRows = personSeries.flatMap((person) => (person.forecast || []).map((row) => ({ ...row, assignee: person.assignee })));
+  const displayedRows = individualRows.length ? individualRows : rows;
+  const showPeople = individualRows.length > 0;
+  return <CollapsiblePanel title="Forecast"><table className="dataTable"><thead><tr>{showPeople && <th>Person</th>}<th>Label</th><th>Type</th><th>Velocity</th><th>Complete date</th><th>Intervals</th></tr></thead><tbody>{displayedRows.map((row)=><tr key={`${row.assignee || 'combined'}-${row.key}`} >{showPeople && <td>{row.assignee}</td>}<td><i className={`scenarioBox ${row.key}`}/> {row.label}</td><td>{row.type}</td><td>{row.velocity}</td><td>{row.completeDate}</td><td>{row.intervals} weeks</td></tr>)}</tbody></table></CollapsiblePanel>;
 }
 
 function BreakdownPanel({ breakdown }) {
@@ -165,8 +174,7 @@ function BreakdownPanel({ breakdown }) {
     return next;
   });
   const actions = <span className="panelActions"><button type="button" onClick={() => setAllGroups(false)}>Collapse all</button><button type="button" onClick={() => setAllGroups(true)}>Expand all</button></span>;
-
-  return <CollapsiblePanel title="Breakdown" actions={actions}><table className="dataTable"><thead><tr><th>Metrics</th><th>Total</th><th>Trend</th></tr></thead><tbody><tr className="highlightRow"><td><span className="caretPlaceholder">⌄</span><i className="legendDot remaining"/> Remaining work</td><td>{breakdown?.total || 0}</td><td>-</td></tr>{groups.map((group)=>{const expanded=expandedGroups.has(group.label);return <React.Fragment key={group.label}><tr className="groupRow"><td><button type="button" className="rowCollapseButton" aria-expanded={expanded} onClick={()=>toggleGroup(group.label)}><Caret expanded={expanded}/>{group.label}</button></td><td><i className="bar"><i style={{width:`${group.percent}%`}}/></i>{group.total} ({group.percent}%)</td><td>-</td></tr>{expanded&&group.children.map((child)=><tr className="childRow" key={`${group.label}-${child.label}`}><td>{child.label}</td><td><i className="dotBar">{Array.from({length:Math.min(child.total,16)}).map((_,i)=><i key={i}/>)}</i>{child.total} ({child.percent}%)</td><td>-</td></tr>)}</React.Fragment>;})}</tbody></table></CollapsiblePanel>;
+  return <CollapsiblePanel title="Breakdown" actions={actions}><table className="dataTable"><thead><tr><th>Metrics</th><th>Total</th></tr></thead><tbody><tr className="highlightRow"><td><span className="caretPlaceholder">⌄</span><i className="legendDot remaining"/> Remaining work</td><td>{breakdown?.total || 0}</td></tr>{groups.map((group)=>{const expanded=expandedGroups.has(group.label);return <React.Fragment key={group.label}><tr className="groupRow"><td><button type="button" className="rowCollapseButton" aria-expanded={expanded} onClick={()=>toggleGroup(group.label)}><Caret expanded={expanded}/>{group.label}</button></td><td><i className="bar"><i style={{width:`${group.percent}%`}}/></i>{group.total} ({group.percent}%)</td></tr>{expanded&&group.children.map((child)=><tr className="childRow" key={`${group.label}-${child.label}`}><td>{child.label}</td><td><i className="dotBar">{Array.from({length:Math.min(child.total,16)}).map((_,i)=><i key={i}/>)}</i>{child.total} ({child.percent}%)</td></tr>)}</React.Fragment>;})}</tbody></table></CollapsiblePanel>;
 }
 
 function IssuesPanel({ issues }) {
@@ -184,20 +192,21 @@ function IssuesPanel({ issues }) {
 
 function PeopleFilter({ assignees, selectedAssignees, onChange }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const allPeopleSelected = selectedAssignees.length === 0;
   const label = allPeopleSelected
     ? 'All people'
     : selectedAssignees.length === 1
       ? selectedAssignees[0]
       : `${selectedAssignees.length} people`;
+  const filteredAssignees = assignees.filter((assignee) => assignee.toLowerCase().includes(search.trim().toLowerCase()));
   const toggleAssignee = (assignee) => {
     const next = selectedAssignees.includes(assignee)
       ? selectedAssignees.filter((selected) => selected !== assignee)
       : [...selectedAssignees, assignee];
     onChange(next);
   };
-
-  return <div className="peopleFilter"><span>People</span><div className="menuWrap"><button type="button" className="peopleFilterButton" aria-haspopup="true" aria-expanded={open} onClick={()=>setOpen(!open)}>{label} <span aria-hidden="true">⌄</span></button>{open&&<div className="popover peoplePopover"><label className="checkOption"><input type="checkbox" checked={allPeopleSelected} onChange={()=>onChange([])}/>All people</label>{assignees.map((assignee)=><label className="checkOption" key={assignee}><input type="checkbox" checked={selectedAssignees.includes(assignee)} onChange={()=>toggleAssignee(assignee)}/>{assignee}</label>)}</div>}</div></div>;
+  return <div className="peopleFilter"><span>People</span><div className="menuWrap"><button type="button" className="peopleFilterButton" aria-haspopup="true" aria-expanded={open} onClick={()=>setOpen(!open)}>{label} <span aria-hidden="true">⌄</span></button>{open&&<div className="popover peoplePopover"><label className="peopleSearch"><span className="srOnly">Search people</span><span className="peopleSearchIcon" aria-hidden="true">⌕</span><input type="search" value={search} placeholder="Search people" onChange={(event)=>setSearch(event.target.value)} autoFocus/></label><div className="peopleOptions"><label className="checkOption"><input type="checkbox" checked={allPeopleSelected} onChange={()=>onChange([])}/>All people</label>{filteredAssignees.map((assignee)=><label className="checkOption" key={assignee}><input type="checkbox" checked={selectedAssignees.includes(assignee)} onChange={()=>toggleAssignee(assignee)}/>{assignee}</label>)}{filteredAssignees.length === 0 && <p className="peopleEmpty">No people match your search.</p>}</div></div>}</div></div>;
 }
 
 function SettingsSection({ title, initiallyExpanded = true, children }) {
@@ -241,7 +250,7 @@ function View() {
   if(error) return <main className="page errorState"><h2>Could not load burndown data</h2><p>{error}</p><button onClick={()=>loadData()}>Retry</button></main>;
   return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><PeopleFilter assignees={assignees} selectedAssignees={selectedAssignees} onChange={(nextAssignees)=>loadData({...config,assignee:'all',assignees:nextAssignees})}/><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>    <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><RangeMenu config={config} openMenu={openMenu} setOpenMenu={setOpenMenu} onApply={loadData}/><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Tune how far the forecast extends and the team capacity applied to it.</p><label>Interval count<input type="number" min="1" value={config.forecastIntervals} onChange={(e)=>setConfig({...config,forecastIntervals:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
     <div className="metricGrid"><div className="metricCard"><span>Completed</span><b>{metrics.completedPercent}%</b></div><div className="metricCard scopeCard" title="Scope change is the net change in total work from the first interval to the latest interval. Positive means work was added; negative means work was removed."><span>Scope change <i className="infoIcon" aria-label="Scope change is the net change in total work from the first interval to the latest interval">?</i></span><b>{metrics.scopeChange}<small> net work change&nbsp; · &nbsp;{Math.round(metrics.scopeChange/Math.max(1,(data.series||[]).length-1))} avg/interval</small></b></div></div>
-    <div className="chartHeader"><div><b>Burndown chart</b></div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast}/>}
-    {config.showForecast!==false&&<ForecastPanel rows={(data.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown||{total:0,groups:[]}}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;
+    <div className="chartHeader"><div><b>Burndown chart</b></div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast} personSeries={data.personSeries||[]}/>}
+    {config.showForecast!==false&&<ForecastPanel rows={(data.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)} personSeries={(data.personSeries||[]).map((person)=>({...person,forecast:(person.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)}))}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown||{total:0,groups:[]}}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;
 }
 export default View;
