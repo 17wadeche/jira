@@ -4,7 +4,6 @@ import './App.css';
 
 const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval"',
-  doneStatuses: 'Done, Closed, Resolved, Completed, Approved, Business Approved',
   rangeCount: 6,
   rangeUnit: 'biweeks',
   groupBy: 'weekly',
@@ -94,11 +93,15 @@ function Edit() {
         <h3>Calculation</h3>
 
         <label>
-          Done statuses
-          <input
-            value={config.doneStatuses}
-            onChange={(event) => update('doneStatuses', event.target.value)}
-          />
+          Complete when
+          <div className="selectedSetting">
+            Business Tested &amp; Approved changes from Reviewing to Ready for Review (Demoed)
+          </div>
+        </label>
+
+        <label>
+          Completion date
+          <div className="selectedSetting">Updated</div>
         </label>
 
         <div className="editGrid">

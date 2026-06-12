@@ -26,9 +26,9 @@ const MOCK_DATA = {
     { label:'No parent',total:10,percent:21,children:[{label:'Task',total:10,percent:100}] }
   ]},
   remainingIssues: [
-    {key:'TWD-47',summary:'Validate complaint outcome and customer response',assignee:'Joe Alpha',status:'IN PROGRESS',url:'#'},
-    {key:'TWD-51',summary:'Complete business approval evidence',assignee:'Joe Alpha',status:'TO DO',url:'#'},
-    {key:'TWD-58',summary:'Prepare final complaint resolution',assignee:'Unassigned',status:'TO DO',url:'#'}
+    {key:'TWD-47',summary:'Validate complaint outcome and customer response',businessTestedApproved:'Reviewing',assignee:'Joe Alpha',parent:'TWD-12',updated:'2024-04-23T15:30:00.000Z',url:'#'},
+    {key:'TWD-51',summary:'Complete business approval evidence',businessTestedApproved:'Not set',assignee:'Joe Alpha',parent:'TWD-12',updated:'2024-04-22T12:15:00.000Z',url:'#'},
+    {key:'TWD-58',summary:'Prepare final complaint resolution',businessTestedApproved:'Reviewing',assignee:'Unassigned',parent:'No parent',updated:'2024-04-19T09:45:00.000Z',url:'#'}
   ]
 };
 
@@ -115,7 +115,8 @@ function BreakdownPanel({ breakdown }) {
 }
 
 function IssuesPanel({ issues }) {
-  return <CollapsiblePanel title={<>Remaining work ({issues.length}): <i className="legendDot remaining"/> Remaining work</>}><div className="subTitle">Issues ↗</div><table className="dataTable"><thead><tr><th>Key</th><th>Summary</th><th>Issue count</th><th>Assignee</th><th>Status</th></tr></thead><tbody>{issues.map((issue)=><tr key={issue.key}><td><a href={issue.url}>{issue.key}</a></td><td>{issue.summary}</td><td><span className="countPill">1</span></td><td>◉ {issue.assignee}</td><td><span className="statusPill">{issue.status}</span></td></tr>)}</tbody></table></CollapsiblePanel>;
+  const formatUpdated = (value) => value ? new Date(value).toLocaleString() : 'Not available';
+  return <CollapsiblePanel title={<>Remaining work ({issues.length}): <i className="legendDot remaining"/> Remaining work</>}><div className="subTitle">Issues ↗</div><table className="dataTable"><thead><tr><th>Key</th><th>Summary</th><th>Business Tested &amp; Approved</th><th>Assignee</th><th>Parent</th><th>Updated</th></tr></thead><tbody>{issues.map((issue)=><tr key={issue.key}><td><a href={issue.url}>{issue.key}</a></td><td>{issue.summary}</td><td><span className="statusPill">{issue.businessTestedApproved}</span></td><td>◉ {issue.assignee}</td><td>{issue.parent}</td><td>{formatUpdated(issue.updated)}</td></tr>)}</tbody></table></CollapsiblePanel>;
 }
 
 function SettingsSection({ title, initiallyExpanded = true, children }) {
@@ -127,7 +128,7 @@ function Settings({ config, setConfig, onApply }) {
   const update = (name,value) => setConfig((current)=>({...current,[name]:value}));
   return <aside className="settings"><div className="chartTypes"><div className="selectedChartType">⌁<small>Burndown chart</small></div></div>
     <SettingsSection title="Data source"><label>Custom JQL<textarea value={config.jql} onChange={(e)=>update('jql',e.target.value)}/></label></SettingsSection>
-    <SettingsSection title="Calculation"><label>Estimation field<select disabled><option>Issue count</option></select></label><label>Done statuses<input value={Array.isArray(config.doneStatuses)?config.doneStatuses.join(', '):(config.doneStatuses||'')} onChange={(e)=>update('doneStatuses',e.target.value)} placeholder="Done, Closed, Resolved"/></label></SettingsSection>
+    <SettingsSection title="Calculation"><label>Estimation field<select disabled><option>Issue count</option></select></label><label>Complete when<div className="selectedSetting">Business Tested &amp; Approved: Reviewing → Ready for Review (Demoed)</div></label><label>Completion date<div className="selectedSetting">Updated</div></label></SettingsSection>
     <SettingsSection title="Remaining work"><label>Remaining work value<div className="selectedSetting">Auto</div></label></SettingsSection>
     <SettingsSection title="Issue filter"><label>Filter source<div className="selectedSetting">Custom JQL above</div></label></SettingsSection>
     <button type="button" className="primaryButton" onClick={()=>onApply(config)}>Apply settings</button></aside>;
