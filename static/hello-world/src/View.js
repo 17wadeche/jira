@@ -83,9 +83,9 @@ function Chart({ series, config, forecast, personSeries = [] }) {
     {Array.from({length:count}).map((_,index) => <line key={index} x1={x(index)} x2={x(index)} y1={padding.top} y2={height-padding.bottom} className="grid"/>)}
     {series.map((point,index) => <rect key={`${point.label}-hover`} x={x(index)-xStep/2} y={padding.top} width={xStep} height={height-padding.top-padding.bottom} className={`intervalHitArea ${hoveredIndex===index?'active':''}`} onMouseEnter={()=>setHoveredIndex(index)} onMouseLeave={()=>setHoveredIndex(null)}/>)}
     {series.map((point,index) => <text key={point.label} x={x(index)} y={height-54} className="xLabel" transform={`rotate(-43 ${x(index)} ${height-54})`}>{point.label}</text>)}
-    {visible('total') && <path d={path(series,'total')} className="line totalLine"/>}
-    {visible('completed') && <path d={path(series,'completed')} className="line completedLine"/>}
-    {visible('remaining') && <path d={path(series,'remaining')} className="line remainingLine"/>}
+    {!separatePeople && visible('total') && <path d={path(series,'total')} className="line totalLine"/>}
+    {!separatePeople && visible('completed') && <path d={path(series,'completed')} className="line completedLine"/>}
+    {!separatePeople && visible('remaining') && <path d={path(series,'remaining')} className="line remainingLine"/>}
     {separatePeople && personSeries.map((person, personIndex) => <g key={person.assignee} style={{color:personColors[personIndex % personColors.length]}}>
       {visible('remaining') && <path d={path(person.series, 'remaining')} className="line personLine personRemainingLine" style={{stroke:'currentColor'}}/>}
       {visible('completed') && <path d={path(person.series, 'completed')} className="line personLine personCompletedLine" style={{stroke:'currentColor'}}/>}
@@ -102,7 +102,7 @@ function Chart({ series, config, forecast, personSeries = [] }) {
       })}
     </g>)}
     {!separatePeople && config.showForecast !== false && activeScenarios.map((scenario) => { const points=makeForecast(series,scenario.velocity); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}</g>; })}
-    {series.map((point,index) => <g key={`${point.label}-dots`}>
+    {!separatePeople && series.map((point,index) => <g key={`${point.label}-dots`}>
       {['total','completed','remaining'].map((field) => visible(field) && <g key={field}><circle cx={x(index)} cy={y(point[field])} r="4" className={`dot ${field}Dot`}/>{config.showValueLabels !== false && <text x={x(index)+5} y={y(point[field])-7} className={`${field}Value valueLabel`}>{point[field]}</text>}</g>)}
     </g>)}
     {separatePeople && personSeries.flatMap((person, personIndex) => person.series.flatMap((point, index) => [
