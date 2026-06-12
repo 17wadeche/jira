@@ -5,8 +5,12 @@ const resolver = new Resolver();
 
 const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval"',
+  rangeMode: 'last',
   rangeCount: 6,
   rangeUnit: 'biweeks',
+  sinceDate: '',
+  fixedFrom: '',
+  fixedTo: '',
   groupBy: 'weekly',
   showCompleted: true,
   showRemaining: true,
@@ -162,13 +166,21 @@ function displayFieldValue(value) {
 function buildSeries(issues, config) {
   const groupDays = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 91 }[config.groupBy] || 7;
   const rangeDays = { days: 1, weeks: 7, biweeks: 14, months: 30, quarters: 91 }[config.rangeUnit] || 14;
-  const pointCount = Math.max(4, Math.min(18, Math.ceil((Number(config.rangeCount) * rangeDays) / groupDays)));
-  const currentStart = startOfWeek(new Date());
-  const chartStart = addDays(currentStart, -(pointCount - 1) * groupDays);
+  const today = new Date();
+  const parseDate = (value) => value ? new Date(`${value}T00:00:00`) : null;
+  const selectedStart = config.rangeMode === 'since' ? parseDate(config.sinceDate) : parseDate(config.fixedFrom);
+  const selectedEnd = config.rangeMode === 'fixed' ? parseDate(config.fixedTo) : today;
+  const usesSelectedDates = ['since', 'fixed'].includes(config.rangeMode) && selectedStart && selectedEnd && selectedStart <= selectedEnd;
+  const selectedDayCount = usesSelectedDates ? Math.floor((selectedEnd - selectedStart) / 86400000) + 1 : 0;
+  const pointCount = usesSelectedDates
+    ? Math.max(1, Math.min(18, Math.ceil(selectedDayCount / groupDays)))
+    : Math.max(4, Math.min(18, Math.ceil((Number(config.rangeCount) * rangeDays) / groupDays)));
+  const chartStart = usesSelectedDates ? selectedStart : addDays(startOfWeek(today), -(pointCount - 1) * groupDays);
 
   const series = Array.from({ length: pointCount }, (_, index) => {
     const start = addDays(chartStart, index * groupDays);
-    const end = addDays(start, groupDays - 1);
+    const naturalEnd = addDays(start, groupDays - 1);
+    const end = usesSelectedDates && naturalEnd > selectedEnd ? new Date(selectedEnd) : naturalEnd;
     end.setHours(23, 59, 59, 999);
     const total = issues.filter((issue) => new Date(issue.created) <= end).length;
     const completed = issues.filter((issue) => issue.completedDate && new Date(issue.completedDate) <= end).length;
