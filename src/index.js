@@ -14,7 +14,8 @@ const DEFAULT_CONFIG = {
   showValueLabels: true,
   showForecast: true,
   showBreakdown: true,
-  showRemainingIssues: true
+  showRemainingIssues: true,
+  assignee: 'all'
 };
 
 function startOfWeek(date) {
@@ -187,7 +188,9 @@ function buildSeries(issues, config) {
       totalWork: current.total,
       completedWork: current.completed,
       remainingWork: current.remaining,
-      activeInterval: current.remaining,
+      // Active interval is the work completed during the latest reporting bucket,
+      // not another name for all remaining work.
+      activeInterval: Math.max(0, current.completed - (series[series.length - 2]?.completed || 0)),
       completedPercent: current.total ? Math.round((current.completed / current.total) * 100) : 0,
       scopeChange: current.total - first.total
     }
@@ -256,8 +259,14 @@ resolver.define('getBurndownData', async ({ payload }) => {
     completedDate: findCompletedDate(issue, historiesByIssueId.get(issue.id) || [], completionField.id)
   }));
 
-  const chart = buildSeries(issues, config);
-  const remainingIssues = issues.filter((issue) => !issue.completedDate).map((issue) => ({ ...issue, url: `/browse/${issue.key}` }));
+  // Keep the complete assignee list available so the dashboard defaults to an
+  // all-people view while still allowing a viewer to focus on one person.
+  const assignees = [...new Set(issues.map((issue) => issue.assignee))].sort((a, b) => a.localeCompare(b));
+  const filteredIssues = config.assignee && config.assignee !== 'all'
+    ? issues.filter((issue) => issue.assignee === config.assignee)
+    : issues;
+  const chart = buildSeries(filteredIssues, config);
+  const remainingIssues = filteredIssues.filter((issue) => !issue.completedDate).map((issue) => ({ ...issue, url: `/browse/${issue.key}` }));
   return {
     config,
     completionRule: {
@@ -265,7 +274,8 @@ resolver.define('getBurndownData', async ({ payload }) => {
       from: COMPLETION_FROM_VALUE,
       to: COMPLETION_TO_VALUE
     },
-    issueCount: issues.length,
+    issueCount: filteredIssues.length,
+    assignees,
     ...chart,
     forecast: buildForecast(chart.series),
     breakdown: buildBreakdown(remainingIssues),
