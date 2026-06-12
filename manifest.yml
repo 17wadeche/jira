@@ -1,0 +1,29 @@
+modules:
+  jira:dashboardGadget:
+    - key: twd-complaint-burndown-hello-world-gadget
+      title: TWD Complaint Handling Burndown
+      description: A hello world dashboard gadget.
+      thumbnail: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+      resource: main
+      resolver:
+        function: resolver
+      edit:
+        resource: main
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: static/hello-world/build
+permissions:
+  scopes:
+    - read:jira-work
+  content:
+    styles:
+      - unsafe-inline
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/24acc173-81fd-40f3-ba49-42bdab6f4448

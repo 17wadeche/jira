@@ -1,0 +1,7 @@
+node_modules/
+static/hello-world/node_modules/
+.env
+.env.local
+.DS_Store
+*.log
+static/hello-world/build/
