@@ -4,7 +4,7 @@ import './App.css';
 const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval"', rangeMode: 'last', rangeCount: 6, rangeUnit: 'biweeks', sinceDate: '', fixedFrom: '', fixedTo: '', groupBy: 'weekly',
   showCompleted: true, showRemaining: true, showTotal: true, showValueLabels: true, showForecast: true,
-  forecastIntervals: 5, capacityCoefficient: 100, scenarioMax: true, scenarioAverage: true, scenarioMin: true,
+  forecastMonths: 1, capacityCoefficient: 100, scenarioMax: true, scenarioAverage: true, scenarioMin: true,
   showBreakdown: true, showRemainingIssues: true, assignees: [], peopleDisplay: 'combined'
 };
 
@@ -37,25 +37,41 @@ const isLocalPreview = () => ['localhost', '127.0.0.1'].includes(window.location
 const displayValue = (value) => String(value || '').replace(/(^|[-_])\w/g, (match) => match.replace(/[-_]/, ' ').toUpperCase());
 const decodeJql = (value) => String(value || '').replace(/&(?:amp|#38|#x26);/gi, '&');
 
-function makeForecast(series, scenario) {
+function forecastIntervalLimit(config) {
+  const months = Math.min(24, Math.max(1, Number(config.forecastMonths) || 1));
+  const groupBy = config.groupBy || 'weekly';
+
+  // Forecast horizons are selected in calendar months because that is how viewers
+  // plan ahead. Convert that calendar window into the chart's current grouping so
+  // daily, weekly, and other views all stop at the same requested future date.
+  if (groupBy === 'monthly') return Math.ceil(months);
+  if (groupBy === 'quarterly') return Math.ceil(months / 3);
+
+  const today = new Date();
+  const horizon = new Date(today);
+  horizon.setMonth(horizon.getMonth() + months);
+  const days = Math.max(1, Math.ceil((horizon - today) / 86400000));
+  const daysPerInterval = groupBy === 'daily' ? 1 : groupBy === 'biweekly' ? 14 : 7;
+  return Math.ceil(days / daysPerInterval);
+}
+
+function makeForecast(series, scenario, intervalLimit) {
   const points = [];
   const startingRemaining = Number(series[series.length - 1]?.remaining) || 0;
   const velocity = Math.max(0, Number(scenario?.velocity ?? scenario) || 0);
   const suppliedIntervals = Math.max(0, Number(scenario?.intervals) || 0);
-
-  // Jira forecast responses include an interval count that corresponds to the projected
-  // completion date. Prefer it so the graph endpoint and the date shown below the graph
-  // always describe the same projection, while retaining a fallback for older responses.
   const naturalIntervals = velocity > 0 ? Math.ceil(startingRemaining / velocity) : 0;
-  const intervalCount = Math.min(104, suppliedIntervals || naturalIntervals);
+  const completionIntervals = suppliedIntervals || naturalIntervals;
+  const intervalCount = Math.min(104, intervalLimit, completionIntervals || intervalLimit);
 
   for (let interval = 1; interval <= intervalCount; interval += 1) {
-    // The final forecast point represents completion. Explicitly setting it to zero keeps
-    // rounding or capacity adjustments from making the line appear to lead nowhere.
-    const remaining = interval === intervalCount
-      ? 0
-      : Math.max(0, startingRemaining - velocity * interval);
-    points.push({ label:`Forecast ${interval}`, remaining });
+    const completesHere = completionIntervals > 0 && interval === completionIntervals;
+    // Treat the projected completion interval as authoritative. This keeps a slower
+    // scenario above zero when its completion date falls beyond the selected horizon.
+    const remaining = completionIntervals > 0
+      ? Math.max(0, startingRemaining * (1 - interval / completionIntervals))
+      : startingRemaining;
+    points.push({ label:`Forecast ${interval}`, remaining, complete: completesHere });
   }
   return points;
 }
@@ -65,18 +81,17 @@ function Chart({ series, config, forecast, personSeries = [] }) {
   const width = 1180, height = 390, padding = { top:36, right:34, bottom:92, left:54 };
   const scenarios = forecast?.length ? forecast : [{key:'max',velocity:28},{key:'average',velocity:8},{key:'min',velocity:12}];
   const activeScenarios = scenarios.filter((scenario) => config[`scenario${displayValue(scenario.key).replace(/\s/g, '')}`] !== false);
+  const forecastLimit = forecastIntervalLimit(config);
   const separatePeople = config.peopleDisplay === 'separate' && personSeries.length > 1;
   const personScenarios = (person) => activeScenarios.map((scenario) =>
     (person.forecast || []).find((personScenario) => personScenario.key === scenario.key) || scenario
   );
   // Separate-person forecasts use each person's own velocity, so the chart must
   // reserve enough horizontal space for the longest individual projection.
-  const forecastLengths = separatePeople
-    ? personSeries.flatMap((person) => personScenarios(person).map((scenario) => makeForecast(person.series, scenario).length))
-    : activeScenarios.map((scenario) => makeForecast(series, scenario).length);
-  const longestForecast = config.showForecast !== false && forecastLengths.length ? Math.max(...forecastLengths) : 0;
+  const longestForecast = config.showForecast !== false && activeScenarios.length ? forecastLimit : 0;
   const personValues = personSeries.flatMap((person) => person.series.flatMap((point) => [point.total, point.completed, point.remaining]));
-  const maxY = Math.max(10, ...series.flatMap((point) => [point.total, point.completed, point.remaining]), ...personValues);
+  const scaleValues = separatePeople ? personValues : series.flatMap((point) => [point.total, point.completed, point.remaining]);
+  const maxY = Math.max(10, ...scaleValues);
   const personColors = ['#0c66e4', '#bf63f3', '#e56910', '#22a06b', '#f15b50', '#6e5dc6'];
   const count = series.length + longestForecast;
   const xStep = (width - padding.left - padding.right) / Math.max(count - 1, 1);
@@ -90,7 +105,7 @@ function Chart({ series, config, forecast, personSeries = [] }) {
   const tooltipY = hovered ? Math.max(46, y(hovered.total) - 28) : 0;
   const completionLabel = (scenario, points, offset, lane = 0, prefix = '') => {
     const endpointIndex = offset + points.length - 1;
-    if (!points.length || points[points.length - 1].remaining !== 0) return null;
+    if (!points.length || !points[points.length - 1].complete) return null;
 
     // Keep projected completion dates readable when a scenario finishes close to either
     // horizontal edge. Each scenario gets its own lane below the zero-work line.
@@ -118,7 +133,7 @@ function Chart({ series, config, forecast, personSeries = [] }) {
       {visible('remaining') && <path d={path(person.series, 'remaining')} className="line personLine personRemainingLine" style={{stroke:'currentColor'}}/>}
       {visible('completed') && <path d={path(person.series, 'completed')} className="line personLine personCompletedLine" style={{stroke:'currentColor'}}/>}
       {config.showForecast !== false && personScenarios(person).map((scenario) => {
-        const points = makeForecast(person.series, scenario);
+        const points = makeForecast(person.series, scenario, forecastLimit);
         const preferredLabelIndex = { max:0, average:1, min:2 }[scenario.key] || 0;
         const labelIndex = Math.min(preferredLabelIndex, Math.max(points.length - 1, 0));
         const labelPoint = points[labelIndex];
@@ -130,7 +145,7 @@ function Chart({ series, config, forecast, personSeries = [] }) {
         </g>;
       })}
     </g>)}
-    {!separatePeople && config.showForecast !== false && activeScenarios.map((scenario, scenarioIndex) => { const points=makeForecast(series,scenario); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}{completionLabel(scenario, points, series.length, scenarioIndex)}</g>; })}
+    {!separatePeople && config.showForecast !== false && activeScenarios.map((scenario, scenarioIndex) => { const points=makeForecast(series,scenario,forecastLimit); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}{completionLabel(scenario, points, series.length, scenarioIndex)}</g>; })}
     {!separatePeople && series.map((point,index) => <g key={`${point.label}-dots`}>
       {['total','completed','remaining'].map((field) => visible(field) && <g key={field}><circle cx={x(index)} cy={y(point[field])} r="4" className={`dot ${field}Dot`}/>{config.showValueLabels !== false && <text x={x(index)+5} y={y(point[field])-7} className={`${field}Value valueLabel`}>{point[field]}</text>}</g>)}
     </g>)}
@@ -321,7 +336,7 @@ function View() {
       : `Burndown Chart For ${selectedAssignees.length} People`;
   if(error) return <main className="page errorState"><h2>Could not load burndown data</h2><p>{error}</p><button onClick={()=>loadData()}>Retry</button></main>;
   return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><PeopleFilter assignees={assignees} selectedAssignees={selectedAssignees} displayMode={config.peopleDisplay} onChange={(nextAssignees)=>loadData({...config,assignee:'all',assignees:nextAssignees})} onDisplayModeChange={(peopleDisplay)=>setConfig({...config,peopleDisplay})}/><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
-    <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><RangeMenu config={config} openMenu={openMenu} setOpenMenu={setOpenMenu} onApply={loadData}/><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Tune how far the forecast extends and the team capacity applied to it.</p><label>Interval count<input type="number" min="1" value={config.forecastIntervals} onChange={(e)=>setConfig({...config,forecastIntervals:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
+    <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><RangeMenu config={config} openMenu={openMenu} setOpenMenu={setOpenMenu} onApply={loadData}/><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Choose a calendar-month horizon. Lines that complete later stop at the edge of that window.</p><label>Forecast months<input type="number" min="1" max="24" value={config.forecastMonths} onChange={(e)=>setConfig({...config,forecastMonths:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
     <div className="metricGrid"><div className="metricCard"><span>Completed</span><b>{metrics.completedPercent}%</b></div><div className="metricCard scopeCard" title="Scope change is the net change in total work from the first interval to the latest interval. Positive means work was added; negative means work was removed."><span>Scope change <i className="infoIcon" aria-label="Scope change is the net change in total work from the first interval to the latest interval">?</i></span><b>{metrics.scopeChange}<small> net work change&nbsp; · &nbsp;{Math.round(metrics.scopeChange/Math.max(1,(data.series||[]).length-1))} avg/interval</small></b></div></div>
     <div className="chartHeader"><div><b>Burndown chart</b>{config.peopleDisplay === 'separate' && selectedAssignees.length > 1 && <div className="personLegend">{personSeries.map((person,index)=><span key={person.assignee}><i style={{background:['#0c66e4','#bf63f3','#e56910','#22a06b','#f15b50','#6e5dc6'][index%6]}}/>{person.assignee}</span>)}<span className="personMetricKey"><i className="remainingSample"/>Solid = remaining</span><span className="personMetricKey"><i className="completedSample"/>Dotted = completed</span></div>}</div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast} personSeries={personSeries}/>}
     {config.showForecast!==false&&<ForecastPanel rows={(data.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)} personSeries={config.peopleDisplay === 'separate' ? personSeries.map((person)=>({...person,forecast:(person.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)})) : []}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown||{total:0,groups:[]}}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;

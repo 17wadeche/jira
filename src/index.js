@@ -17,6 +17,7 @@ const DEFAULT_CONFIG = {
   showTotal: true,
   showValueLabels: true,
   showForecast: true,
+  forecastMonths: 1,
   showBreakdown: true,
   showRemainingIssues: true,
   assignees: [],

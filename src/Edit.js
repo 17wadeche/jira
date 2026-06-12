@@ -16,7 +16,7 @@ const DEFAULT_CONFIG = {
   showTotal: true,
   showValueLabels: true,
   showForecast: true,
-  forecastIntervals: 5,
+  forecastMonths: 1,
   capacityCoefficient: 100,
   scenarioMax: true,
   scenarioAverage: true,
@@ -73,7 +73,7 @@ function Edit() {
       ...config,
       jql: decodeJql(config.jql),
       rangeCount: Number(config.rangeCount || 6),
-      forecastIntervals: Number(config.forecastIntervals || 5),
+      forecastMonths: Number(config.forecastMonths || 1),
       capacityCoefficient: Number(config.capacityCoefficient || 100)
     });
   }
@@ -209,12 +209,13 @@ function Edit() {
 
         <div className="editGrid">
           <label>
-            Interval count
+            Forecast months
             <input
               type="number"
               min="1"
-              value={config.forecastIntervals}
-              onChange={(event) => update('forecastIntervals', event.target.value)}
+              max="24"
+              value={config.forecastMonths}
+              onChange={(event) => update('forecastMonths', event.target.value)}
             />
           </label>
 
