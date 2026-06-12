@@ -5,7 +5,7 @@ const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval"', rangeMode: 'last', rangeCount: 6, rangeUnit: 'biweeks', sinceDate: '', fixedFrom: '', fixedTo: '', groupBy: 'weekly',
   showCompleted: true, showRemaining: true, showTotal: true, showValueLabels: true, showForecast: true,
   forecastIntervals: 5, capacityCoefficient: 100, scenarioMax: true, scenarioAverage: true, scenarioMin: true,
-  showBreakdown: true, showRemainingIssues: true, assignees: []
+  showBreakdown: true, showRemainingIssues: true, assignees: [], peopleDisplay: 'combined'
 };
 
 const MOCK_DATA = {
@@ -49,15 +49,17 @@ function makeForecast(series, velocity) {
   return points;
 }
 
-function Chart({ series, config, forecast }) {
+function Chart({ series, config, forecast, personSeries = [] }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const width = 1180, height = 390, padding = { top:36, right:34, bottom:92, left:54 };
   const scenarios = forecast?.length ? forecast : [{key:'max',velocity:28},{key:'average',velocity:8},{key:'min',velocity:12}];
   const activeScenarios = scenarios.filter((scenario) => config[`scenario${displayValue(scenario.key).replace(/\s/g, '')}`] !== false);
   const positiveVelocities = activeScenarios.map((scenario) => scenario.velocity).filter((velocity) => velocity > 0);
   const slowestVelocity = positiveVelocities.length ? Math.min(...positiveVelocities) : 1;
-  const longest = config.showForecast !== false && activeScenarios.length ? makeForecast(series, slowestVelocity) : [];
-  const maxY = Math.max(10, ...series.flatMap((point) => [point.total, point.completed, point.remaining]));
+  const separatePeople = config.peopleDisplay === 'separate' && personSeries.length > 1;
+  const longest = !separatePeople && config.showForecast !== false && activeScenarios.length ? makeForecast(series, slowestVelocity) : [];
+  const maxY = Math.max(10, ...series.flatMap((point) => [point.total, point.completed, point.remaining]), ...personSeries.flatMap((person) => person.series.map((point) => point.remaining)));
+  const personColors = ['#0c66e4', '#bf63f3', '#e56910', '#22a06b', '#f15b50', '#6e5dc6'];
   const count = series.length + longest.length;
   const xStep = (width - padding.left - padding.right) / Math.max(count - 1, 1);
   const x = (index) => padding.left + index * xStep;
@@ -74,13 +76,15 @@ function Chart({ series, config, forecast }) {
     {Array.from({length:count}).map((_,index) => <line key={index} x1={x(index)} x2={x(index)} y1={padding.top} y2={height-padding.bottom} className="grid"/>)}
     {series.map((point,index) => <rect key={`${point.label}-hover`} x={x(index)-xStep/2} y={padding.top} width={xStep} height={height-padding.top-padding.bottom} className={`intervalHitArea ${hoveredIndex===index?'active':''}`} onMouseEnter={()=>setHoveredIndex(index)} onMouseLeave={()=>setHoveredIndex(null)}/>)}
     {series.map((point,index) => <text key={point.label} x={x(index)} y={height-54} className="xLabel" transform={`rotate(-43 ${x(index)} ${height-54})`}>{point.label}</text>)}
-    {visible('total') && <path d={path(series,'total')} className="line totalLine"/>}
-    {visible('completed') && <path d={path(series,'completed')} className="line completedLine"/>}
-    {visible('remaining') && <path d={path(series,'remaining')} className="line remainingLine"/>}
-    {config.showForecast !== false && activeScenarios.map((scenario) => { const points=makeForecast(series,scenario.velocity); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}</g>; })}
-    {series.map((point,index) => <g key={`${point.label}-dots`}>
+    {!separatePeople && visible('total') && <path d={path(series,'total')} className="line totalLine"/>}
+    {!separatePeople && visible('completed') && <path d={path(series,'completed')} className="line completedLine"/>}
+    {!separatePeople && visible('remaining') && <path d={path(series,'remaining')} className="line remainingLine"/>}
+    {separatePeople && personSeries.map((person, personIndex) => <path key={person.assignee} d={path(person.series, 'remaining')} className="line personLine" style={{stroke:personColors[personIndex % personColors.length]}}/>)}
+    {!separatePeople && config.showForecast !== false && activeScenarios.map((scenario) => { const points=makeForecast(series,scenario.velocity); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}</g>; })}
+    {!separatePeople && series.map((point,index) => <g key={`${point.label}-dots`}>
       {['total','completed','remaining'].map((field) => visible(field) && <g key={field}><circle cx={x(index)} cy={y(point[field])} r="4" className={`dot ${field}Dot`}/>{config.showValueLabels !== false && <text x={x(index)+5} y={y(point[field])-7} className={`${field}Value valueLabel`}>{point[field]}</text>}</g>)}
     </g>)}
+    {separatePeople && personSeries.flatMap((person, personIndex) => person.series.map((point, index) => <circle key={`${person.assignee}-${point.label}`} cx={x(index)} cy={y(point.remaining)} r="4" className="dot personDot" style={{stroke:personColors[personIndex % personColors.length]}}/>))}
     {hovered && <g className="chartTooltip" pointerEvents="none"><rect x={tooltipX} y={tooltipY} width="238" height="146" rx="4"/><text x={tooltipX+12} y={tooltipY+22} className="tooltipTitle">{hovered.label}</text><text x={tooltipX+12} y={tooltipY+48}>Total work<tspan x={tooltipX+218} textAnchor="end">{hovered.total}</tspan></text><text x={tooltipX+12} y={tooltipY+70}>Remaining work<tspan x={tooltipX+218} textAnchor="end">{hovered.remaining}</tspan></text><text x={tooltipX+12} y={tooltipY+92}>Completed work<tspan x={tooltipX+218} textAnchor="end">{hovered.completed}</tspan></text><text x={tooltipX+12} y={tooltipY+114}>Velocity<tspan x={tooltipX+218} textAnchor="end">{hoveredIndex ? Math.max(0, hovered.completed-series[hoveredIndex-1].completed) : 0}</tspan></text><text x={tooltipX+12} y={tooltipY+136} className="tooltipHint">Current interval details</text></g>}
   </svg>;
 }
@@ -193,22 +197,30 @@ function IssuesPanel({ issues }) {
   return <CollapsiblePanel title={<>Remaining work ({issues.length}): <i className="legendDot remaining"/> Remaining work</>}><table className="dataTable"><thead><tr><th>Key</th><th>Summary</th><th>Business Tested &amp; Approved</th><th>Assignee</th><th>Parent</th><th>Updated</th></tr></thead><tbody>{issues.map((issue)=><tr key={issue.key}><td><a href={issue.url} onClick={(event)=>openIssue(event,issue.url)}>{issue.key}</a></td><td>{issue.summary}</td><td><span className="statusPill">{issue.businessTestedApproved}</span></td><td>◉ {issue.assignee}</td><td>{issue.parent}</td><td>{formatUpdated(issue.updated)}</td></tr>)}</tbody></table></CollapsiblePanel>;
 }
 
-function PeopleFilter({ assignees, selectedAssignees, onChange }) {
+function initials(name) {
+  return String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+}
+
+function PeopleFilter({ assignees, selectedAssignees, displayMode, onChange, onDisplayModeChange }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const allPeopleSelected = selectedAssignees.length === 0;
-  const label = allPeopleSelected
-    ? 'All people'
-    : selectedAssignees.length === 1
-      ? selectedAssignees[0]
-      : `${selectedAssignees.length} people`;
+  const filteredAssignees = assignees.filter((assignee) => assignee.toLowerCase().includes(query.toLowerCase()));
+  const label = allPeopleSelected ? 'All people' : selectedAssignees.length === 1 ? selectedAssignees[0] : `${selectedAssignees.length} people`;
   const toggleAssignee = (assignee) => {
-    const next = selectedAssignees.includes(assignee)
-      ? selectedAssignees.filter((selected) => selected !== assignee)
-      : [...selectedAssignees, assignee];
+    const next = selectedAssignees.includes(assignee) ? selectedAssignees.filter((selected) => selected !== assignee) : [...selectedAssignees, assignee];
     onChange(next);
   };
-
-  return <div className="peopleFilter"><span>People</span><div className="menuWrap"><button type="button" className="peopleFilterButton" aria-haspopup="true" aria-expanded={open} onClick={()=>setOpen(!open)}>{label} <span aria-hidden="true">⌄</span></button>{open&&<div className="popover peoplePopover"><label className="checkOption"><input type="checkbox" checked={allPeopleSelected} onChange={()=>onChange([])}/>All people</label>{assignees.map((assignee)=><label className="checkOption" key={assignee}><input type="checkbox" checked={selectedAssignees.includes(assignee)} onChange={()=>toggleAssignee(assignee)}/>{assignee}</label>)}</div>}</div></div>;
+  return <div className="peopleFilter"><span>People</span><div className="menuWrap">
+    <button type="button" className="peopleFilterButton" aria-haspopup="true" aria-expanded={open} onClick={()=>setOpen(!open)}><span className="peopleButtonContent"><span className="peopleStack" aria-hidden="true"><i>JS</i><i>CR</i></span><span><b>{label}</b><small>{allPeopleSelected ? `${assignees.length} available` : 'Selected for this chart'}</small></span></span><span className="peopleChevron" aria-hidden="true">⌄</span></button>
+    {open&&<div className="popover peoplePopover">
+      <div className="peoplePopoverHeader"><b>Select people</b><small>Filter the work shown on the chart</small></div>
+      <label className="peopleSearch"><span aria-hidden="true">⌕</span><input value={query} onChange={(event)=>setQuery(event.target.value)} placeholder="Search people" aria-label="Search people"/></label>
+      <div className="peopleOptions"><label className="checkOption allPeopleOption"><input type="checkbox" checked={allPeopleSelected} onChange={()=>onChange([])}/><span className="personAvatar allAvatar">All</span><span><b>All people</b><small>Show the whole team's work</small></span></label>{filteredAssignees.map((assignee)=><label className="checkOption" key={assignee}><input type="checkbox" checked={selectedAssignees.includes(assignee)} onChange={()=>toggleAssignee(assignee)}/><span className="personAvatar">{initials(assignee)}</span><span className="personName">{assignee}</span></label>)}{!filteredAssignees.length&&<p className="peopleEmpty">No people match “{query}”.</p>}</div>
+      {selectedAssignees.length > 1&&<div className="peopleDisplay"><span><b>Multiple people</b><small>Choose how their remaining work is graphed</small></span><div className="peopleDisplayButtons"><button type="button" className={displayMode !== 'separate' ? 'selected' : ''} onClick={()=>onDisplayModeChange('combined')}>Combined</button><button type="button" className={displayMode === 'separate' ? 'selected' : ''} onClick={()=>onDisplayModeChange('separate')}>Separate lines</button></div></div>}
+      <div className="peoplePopoverFooter"><span>{allPeopleSelected ? 'Everyone selected' : `${selectedAssignees.length} selected`}</span><button type="button" onClick={()=>setOpen(false)}>Done</button></div>
+    </div>}
+  </div></div>;
 }
 
 function SettingsSection({ title, initiallyExpanded = true, children }) {
@@ -244,16 +256,17 @@ function View() {
   const selectedAssignees = Array.isArray(config.assignees) && config.assignees.length
     ? config.assignees
     : config.assignee && config.assignee !== 'all' ? [config.assignee] : [];
+  const personSeries = data.personSeries?.length ? data.personSeries : selectedAssignees.map((assignee, index) => ({ assignee, series: (data.series || []).map((point) => ({ ...point, remaining: Math.round(point.remaining * (index === 0 ? 0.6 : 0.4)) })) }));
   const chartTitle = selectedAssignees.length === 0
     ? 'Burndown Chart For All People'
     : selectedAssignees.length === 1
       ? `Individual Burndown Chart For ${selectedAssignees[0]}`
       : `Burndown Chart For ${selectedAssignees.length} People`;
   if(error) return <main className="page errorState"><h2>Could not load burndown data</h2><p>{error}</p><button onClick={()=>loadData()}>Retry</button></main>;
-  return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><PeopleFilter assignees={assignees} selectedAssignees={selectedAssignees} onChange={(nextAssignees)=>loadData({...config,assignee:'all',assignees:nextAssignees})}/><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
+  return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><PeopleFilter assignees={assignees} selectedAssignees={selectedAssignees} displayMode={config.peopleDisplay} onChange={(nextAssignees)=>loadData({...config,assignee:'all',assignees:nextAssignees})} onDisplayModeChange={(peopleDisplay)=>setConfig({...config,peopleDisplay})}/><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
     <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><RangeMenu config={config} openMenu={openMenu} setOpenMenu={setOpenMenu} onApply={loadData}/><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Tune how far the forecast extends and the team capacity applied to it.</p><label>Interval count<input type="number" min="1" value={config.forecastIntervals} onChange={(e)=>setConfig({...config,forecastIntervals:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
     <div className="metricGrid"><div className="metricCard"><span>Completed</span><b>{metrics.completedPercent}%</b></div><div className="metricCard scopeCard" title="Scope change is the net change in total work from the first interval to the latest interval. Positive means work was added; negative means work was removed."><span>Scope change <i className="infoIcon" aria-label="Scope change is the net change in total work from the first interval to the latest interval">?</i></span><b>{metrics.scopeChange}<small> net work change&nbsp; · &nbsp;{Math.round(metrics.scopeChange/Math.max(1,(data.series||[]).length-1))} avg/interval</small></b></div></div>
-    <div className="chartHeader"><div><b>Burndown chart</b></div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast}/>}
+    <div className="chartHeader"><div><b>Burndown chart</b>{config.peopleDisplay === 'separate' && selectedAssignees.length > 1 && <div className="personLegend">{personSeries.map((person,index)=><span key={person.assignee}><i style={{background:['#0c66e4','#bf63f3','#e56910','#22a06b','#f15b50','#6e5dc6'][index%6]}}/>{person.assignee}</span>)}</div>}</div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast} personSeries={personSeries}/>}
     {config.showForecast!==false&&<ForecastPanel rows={(data.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown||{total:0,groups:[]}}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;
 }
 export default View;

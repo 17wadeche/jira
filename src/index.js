@@ -19,7 +19,8 @@ const DEFAULT_CONFIG = {
   showForecast: true,
   showBreakdown: true,
   showRemainingIssues: true,
-  assignees: []
+  assignees: [],
+  peopleDisplay: 'combined'
 };
 
 function startOfWeek(date) {
@@ -281,6 +282,9 @@ resolver.define('getBurndownData', async ({ payload }) => {
     ? issues.filter((issue) => selectedAssignees.includes(issue.assignee))
     : issues;
   const chart = buildSeries(filteredIssues, config);
+  const personSeries = selectedAssignees.length > 1
+    ? selectedAssignees.map((assignee) => ({ assignee, series: buildSeries(issues.filter((issue) => issue.assignee === assignee), config).series }))
+    : [];
   const remainingIssues = filteredIssues.filter((issue) => !issue.completedDate).map((issue) => ({ ...issue, url: `/browse/${issue.key}` }));
   return {
     config,
@@ -291,6 +295,7 @@ resolver.define('getBurndownData', async ({ payload }) => {
     },
     issueCount: filteredIssues.length,
     assignees,
+    personSeries,
     ...chart,
     forecast: buildForecast(chart.series),
     breakdown: buildBreakdown(remainingIssues),
