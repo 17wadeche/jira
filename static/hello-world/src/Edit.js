@@ -5,9 +5,9 @@ import './App.css';
 const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval - dash"',
   rangeCount: 6,
-  rangeMode: 'last',
+  rangeMode: 'since',
   rangeUnit: 'biweeks',
-  sinceDate: '',
+  sinceDate: '2026-06-01',
   fixedFrom: '',
   fixedTo: '',
   groupBy: 'weekly',
@@ -23,7 +23,8 @@ const DEFAULT_CONFIG = {
   scenarioMin: true,
   showBreakdown: true,
   showRemainingIssues: true,
-  targetLabel: ''
+  targetLabel: '',
+  completionToValues: ['Ready for Review (Demoed)']
 };
 
 // Forge may HTML-escape ampersands while transporting gadget configuration.
@@ -105,7 +106,7 @@ function Edit() {
         <label>
           Complete when
           <div className="selectedSetting">
-            Business Tested &amp; Approved changes from Reviewing to Ready for Review (Demoed)
+            Business Tested &amp; Approved changes to selected target values
           </div>
         </label>
 

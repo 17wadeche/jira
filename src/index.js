@@ -7,10 +7,10 @@ const TEAM_LABEL = 'BizTestTeam';
 
 const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval - dash"',
-  rangeMode: 'last',
+  rangeMode: 'since',
   rangeCount: 6,
   rangeUnit: 'biweeks',
-  sinceDate: '',
+  sinceDate: '2026-06-01',
   fixedFrom: '',
   fixedTo: '',
   groupBy: 'weekly',
@@ -23,7 +23,8 @@ const DEFAULT_CONFIG = {
   showBreakdown: true,
   showRemainingIssues: true,
   assignees: [],
-  peopleDisplay: 'combined'
+  peopleDisplay: 'combined',
+  completionToValues: ['Ready for Review (Demoed)']
 };
 
 function startOfWeek(date) {
@@ -72,8 +73,7 @@ async function jiraJson(path, options = {}) {
 }
 
 const COMPLETION_FIELD_NAME = 'Business Tested & Approved';
-const COMPLETION_FROM_VALUE = 'Reviewing';
-const COMPLETION_TO_VALUE = 'Ready for Review (Demoed)';
+const DEFAULT_COMPLETION_TO_VALUES = ['Ready for Review (Demoed)'];
 
 async function findCompletionField() {
   // Jira custom-field IDs vary between sites. Looking up the ID by its stable,
@@ -149,11 +149,11 @@ async function fetchCompletionHistories(issues, completionFieldId) {
   return historiesByIssueId;
 }
 
-function findCompletedDate(issue, histories, completionFieldId) {
+function findCompletedDate(issue, histories, completionFieldId, completionToValues) {
+  const targetValues = (Array.isArray(completionToValues) && completionToValues.length ? completionToValues : DEFAULT_COMPLETION_TO_VALUES).map(normalize);
   const hasRequestedTransition = histories.some((history) => (history.items || []).some((item) => (
     item.fieldId === completionFieldId &&
-    normalize(item.fromString) === normalize(COMPLETION_FROM_VALUE) &&
-    normalize(item.toString) === normalize(COMPLETION_TO_VALUE)
+    targetValues.includes(normalize(item.toString))
   )));
 
   // Per the customer's rule, Updated supplies the completion date after the
@@ -273,7 +273,7 @@ resolver.define('getBurndownData', async ({ payload }) => {
     parent: issue.fields?.parent?.key || 'No parent',
     updated: issue.fields?.updated,
     created: issue.fields?.created,
-    completedDate: findCompletedDate(issue, historiesByIssueId.get(issue.id) || [], completionField.id)
+    completedDate: findCompletedDate(issue, historiesByIssueId.get(issue.id) || [], completionField.id, config.completionToValues)
   }));
 
   // Keep the complete assignee list available so the dashboard defaults to an
@@ -310,8 +310,8 @@ resolver.define('getBurndownData', async ({ payload }) => {
     config,
     completionRule: {
       field: COMPLETION_FIELD_NAME,
-      from: COMPLETION_FROM_VALUE,
-      to: COMPLETION_TO_VALUE
+      from: 'any previous value',
+      to: Array.isArray(config.completionToValues) && config.completionToValues.length ? config.completionToValues : DEFAULT_COMPLETION_TO_VALUES
     },
     issueCount: filteredIssues.length,
     assignees,

@@ -2,10 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import './App.css';
 
 const DEFAULT_CONFIG = {
-  jql: 'filter = "Replan - Business Testing & Approval - dash"', rangeMode: 'last', rangeCount: 6, rangeUnit: 'biweeks', sinceDate: '', fixedFrom: '', fixedTo: '', groupBy: 'weekly',
+  jql: 'filter = "Replan - Business Testing & Approval - dash"', rangeMode: 'since', rangeCount: 6, rangeUnit: 'biweeks', sinceDate: '2026-06-01', fixedFrom: '', fixedTo: '', groupBy: 'weekly',
   showCompleted: true, showRemaining: true, showTotal: true, showValueLabels: true, showForecast: true,
   forecastMonths: 1, capacityCoefficient: 100, scenarioMax: true, scenarioAverage: true, scenarioMin: true,
-  showBreakdown: true, showRemainingIssues: true, assignees: [], peopleDisplay: 'combined'
+  showBreakdown: true, showRemainingIssues: true, assignees: [], peopleDisplay: 'combined', completionToValues: ['Ready for Review (Demoed)']
 };
 
 const MOCK_DATA = {
@@ -35,6 +35,7 @@ const MOCK_DATA = {
 
 const PEOPLE_GROUP_LABEL = 'BizTestTeam';
 const PEOPLE_GROUP_SELECTOR = `label:${PEOPLE_GROUP_LABEL}`;
+const COMPLETION_STATUS_OPTIONS = ['Approved', 'Ready for Review (Demoed)', 'Business Tested & Approved'];
 
 const isLocalPreview = () => ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const displayValue = (value) => String(value || '').replace(/(^|[-_])\w/g, (match) => match.replace(/[-_]/, ' ').toUpperCase());
@@ -312,9 +313,20 @@ function SettingsSection({ title, initiallyExpanded = true, children }) {
 
 function Settings({ config, setConfig, onApply }) {
   const update = (name,value) => setConfig((current)=>({...current,[name]:value}));
+  const selectedCompletionTargets = Array.isArray(config.completionToValues) && config.completionToValues.length ? config.completionToValues : ['Ready for Review (Demoed)'];
+  const toggleCompletionTarget = (target) => {
+    // Keep the burndown target selection as a real multiselect. Dashboard
+    // viewers can burn down to one status, or to several acceptable terminal
+    // Business Tested & Approved values, without changing source code.
+    const nextTargets = selectedCompletionTargets.includes(target)
+      ? selectedCompletionTargets.filter((value) => value !== target)
+      : [...selectedCompletionTargets, target];
+    update('completionToValues', nextTargets.length ? nextTargets : [target]);
+  };
   return <aside className="settings"><div className="selectedChartType"><span className="chartTypeIcon">↘</span><span><b>Burndown chart</b><small>Track completed and remaining work over time</small></span></div>
     <SettingsSection title="Data source"><label>Custom JQL<textarea value={config.jql} onChange={(e)=>update('jql',e.target.value)}/></label></SettingsSection>
-    <button type="button" className="primaryButton" onClick={()=>onApply(config)}>Apply settings</button></aside>;
+    <SettingsSection title="Completion targets"><p className="popoverHelp">Count work as burned down when Business Tested &amp; Approved is changed to any selected value.</p>{COMPLETION_STATUS_OPTIONS.map((target)=><label className="checkOption" key={target}><input type="checkbox" checked={selectedCompletionTargets.includes(target)} onChange={()=>toggleCompletionTarget(target)}/>{target}</label>)}</SettingsSection>
+    <button type="button" className="primaryButton" onClick={()=>onApply({...config, completionToValues: selectedCompletionTargets})}>Apply settings</button></aside>;
 }
 
 function View() {
