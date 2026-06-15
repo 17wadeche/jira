@@ -97,7 +97,7 @@ async function searchIssues(jql, completionFieldId) {
     const body = {
       jql,
       maxResults: 100,
-      fields: ['summary', completionFieldId, 'assignee', 'parent', 'updated', 'created', 'issuetype']
+      fields: ['summary', completionFieldId, 'assignee', 'parent', 'updated', 'created', 'issuetype', 'labels']
     };
     if (nextPageToken) body.nextPageToken = nextPageToken;
 
@@ -266,6 +266,7 @@ resolver.define('getBurndownData', async ({ payload }) => {
     summary: issue.fields?.summary || '',
     businessTestedApproved: displayFieldValue(issue.fields?.[completionField.id]) || 'Not set',
     assignee: issue.fields?.assignee?.displayName || 'Unassigned',
+    labels: issue.fields?.labels || [],
     issueType: issue.fields?.issuetype?.name || 'Other',
     parent: issue.fields?.parent?.key || 'No parent',
     updated: issue.fields?.updated,
@@ -276,17 +277,23 @@ resolver.define('getBurndownData', async ({ payload }) => {
   // Keep the complete assignee list available so the dashboard defaults to an
   // all-people view while still allowing a viewer to focus on one person.
   const assignees = [...new Set(issues.map((issue) => issue.assignee))].sort((a, b) => a.localeCompare(b));
+  const labels = [...new Set(issues.flatMap((issue) => issue.labels))].sort((a, b) => a.localeCompare(b));
   const selectedAssignees = Array.isArray(config.assignees) && config.assignees.length
     ? config.assignees
     : config.assignee && config.assignee !== 'all' ? [config.assignee] : [];
+  // Label groups share the people picker by using a namespaced selector value.
+  // This avoids collisions when a Jira label happens to match a person's display name.
+  const matchesSelector = (issue, selector) => selector.startsWith('label:')
+    ? issue.labels.includes(selector.slice(6))
+    : issue.assignee === selector;
   const filteredIssues = selectedAssignees.length
-    ? issues.filter((issue) => selectedAssignees.includes(issue.assignee))
+    ? issues.filter((issue) => selectedAssignees.some((selector) => matchesSelector(issue, selector)))
     : issues;
   const chart = buildSeries(filteredIssues, config);
   const personSeries = selectedAssignees.length > 1
     ? selectedAssignees.map((assignee) => {
-      const series = buildSeries(issues.filter((issue) => issue.assignee === assignee), config).series;
-      return { assignee, series, forecast: buildForecast(series) };
+      const series = buildSeries(issues.filter((issue) => matchesSelector(issue, assignee)), config).series;
+      return { assignee: assignee.replace(/^label:/, ''), series, forecast: buildForecast(series) };
     })
     : [];
   const remainingIssues = filteredIssues.filter((issue) => !issue.completedDate).map((issue) => ({ ...issue, url: `/browse/${issue.key}` }));
@@ -299,6 +306,7 @@ resolver.define('getBurndownData', async ({ payload }) => {
     },
     issueCount: filteredIssues.length,
     assignees,
+    labels,
     personSeries,
     ...chart,
     forecast: buildForecast(chart.series),
