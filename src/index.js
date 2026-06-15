@@ -3,6 +3,8 @@ import api, { route } from '@forge/api';
 
 const resolver = new Resolver();
 
+const TEAM_LABEL = 'BizTestTeam';
+
 const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval - dash"',
   rangeMode: 'last',
@@ -277,7 +279,7 @@ resolver.define('getBurndownData', async ({ payload }) => {
   // Keep the complete assignee list available so the dashboard defaults to an
   // all-people view while still allowing a viewer to focus on one person.
   const assignees = [...new Set(issues.map((issue) => issue.assignee))].sort((a, b) => a.localeCompare(b));
-  const labels = [...new Set(issues.flatMap((issue) => issue.labels))].sort((a, b) => a.localeCompare(b));
+  const labels = issues.some((issue) => issue.labels.includes(TEAM_LABEL)) ? [TEAM_LABEL] : [];
   const selectedAssignees = Array.isArray(config.assignees) && config.assignees.length
     ? config.assignees
     : config.assignee && config.assignee !== 'all' ? [config.assignee] : [];
@@ -290,8 +292,15 @@ resolver.define('getBurndownData', async ({ payload }) => {
     ? issues.filter((issue) => selectedAssignees.some((selector) => matchesSelector(issue, selector)))
     : issues;
   const chart = buildSeries(filteredIssues, config);
-  const personSeries = selectedAssignees.length > 1
-    ? selectedAssignees.map((assignee) => {
+  const selectedLabelGroups = selectedAssignees.filter((selector) => selector.startsWith('label:'));
+  const groupMemberAssignees = selectedLabelGroups.flatMap((selector) => (
+    [...new Set(issues.filter((issue) => matchesSelector(issue, selector)).map((issue) => issue.assignee))]
+      .sort((a, b) => a.localeCompare(b))
+  ));
+  const individualSelectors = selectedAssignees.filter((selector) => !selector.startsWith('label:'));
+  const personSeriesSelectors = [...new Set([...groupMemberAssignees, ...individualSelectors])];
+  const personSeries = personSeriesSelectors.length > 1
+    ? personSeriesSelectors.map((assignee) => {
       const series = buildSeries(issues.filter((issue) => matchesSelector(issue, assignee)), config).series;
       return { assignee: assignee.replace(/^label:/, ''), series, forecast: buildForecast(series) };
     })
