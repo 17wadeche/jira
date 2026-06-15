@@ -151,13 +151,16 @@ async function fetchCompletionHistories(issues, completionFieldId) {
 
 function findCompletedDate(issue, histories, completionFieldId, completionToValues) {
   const targetValues = (Array.isArray(completionToValues) && completionToValues.length ? completionToValues : DEFAULT_COMPLETION_TO_VALUES).map(normalize);
+  const currentValue = normalize(displayFieldValue(issue.fields?.[completionFieldId]));
+  const currentlyMatchesTarget = targetValues.includes(currentValue);
   const hasRequestedTransition = histories.some((history) => (history.items || []).some((item) => (
     item.fieldId === completionFieldId &&
     targetValues.includes(normalize(item.toString))
   )));
+  if (!currentlyMatchesTarget) return null;
 
   // Per the customer's rule, Updated supplies the completion date after the
-  return hasRequestedTransition ? issue.fields?.updated || null : null;
+  return hasRequestedTransition || currentlyMatchesTarget ? issue.fields?.updated || null : null;
 }
 
 function displayFieldValue(value) {
