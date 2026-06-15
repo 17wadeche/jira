@@ -4,7 +4,7 @@ import api, { route } from '@forge/api';
 const resolver = new Resolver();
 
 const DEFAULT_CONFIG = {
-  jql: 'filter = "Replan - Business Testing & Approval"',
+  jql: 'filter = "Replan - Business Testing & Approval - dash"',
   rangeMode: 'last',
   rangeCount: 6,
   rangeUnit: 'biweeks',

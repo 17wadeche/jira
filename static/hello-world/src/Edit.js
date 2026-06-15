@@ -3,7 +3,7 @@ import { view } from '@forge/bridge';
 import './App.css';
 
 const DEFAULT_CONFIG = {
-  jql: 'filter = "Replan - Business Testing & Approval"',
+  jql: 'filter = "Replan - Business Testing & Approval - dash"',
   rangeCount: 6,
   rangeMode: 'last',
   rangeUnit: 'biweeks',

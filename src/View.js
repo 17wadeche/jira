@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import './App.css';
 
 const DEFAULT_CONFIG = {
-  jql: 'filter = "Replan - Business Testing & Approval"', rangeMode: 'last', rangeCount: 6, rangeUnit: 'biweeks', sinceDate: '', fixedFrom: '', fixedTo: '', groupBy: 'weekly',
+  jql: 'filter = "Replan - Business Testing & Approval - dash"', rangeMode: 'last', rangeCount: 6, rangeUnit: 'biweeks', sinceDate: '', fixedFrom: '', fixedTo: '', groupBy: 'weekly',
   showCompleted: true, showRemaining: true, showTotal: true, showValueLabels: true, showForecast: true,
   forecastMonths: 1, capacityCoefficient: 100, scenarioMax: true, scenarioAverage: true, scenarioMin: true,
   showBreakdown: true, showRemainingIssues: true, assignees: []
