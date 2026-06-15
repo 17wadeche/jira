@@ -157,7 +157,6 @@ function findCompletedDate(issue, histories, completionFieldId, completionToValu
   )));
 
   // Per the customer's rule, Updated supplies the completion date after the
-  // requested Business Tested & Approved transition has been confirmed.
   return hasRequestedTransition ? issue.fields?.updated || null : null;
 }
 

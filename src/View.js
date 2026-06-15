@@ -314,7 +314,6 @@ function Settings({ config, setConfig, onApply }) {
   const toggleCompletionTarget = (target) => {
     // Keep the burndown target selection as a real multiselect. Dashboard
     // viewers can burn down to one status, or to several acceptable terminal
-    // Business Tested & Approved values, without changing source code.
     const nextTargets = selectedCompletionTargets.includes(target)
       ? selectedCompletionTargets.filter((value) => value !== target)
       : [...selectedCompletionTargets, target];

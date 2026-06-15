@@ -35,7 +35,7 @@ const MOCK_DATA = {
 
 const PEOPLE_GROUP_LABEL = 'BizTestTeam';
 const PEOPLE_GROUP_SELECTOR = `label:${PEOPLE_GROUP_LABEL}`;
-const COMPLETION_STATUS_OPTIONS = ['Approved', 'Ready for Review (Demoed)', 'Business Tested & Approved'];
+const COMPLETION_STATUS_OPTIONS = ['Approved', 'Ready for Review (Demoed)'];
 
 const isLocalPreview = () => ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const displayValue = (value) => String(value || '').replace(/(^|[-_])\w/g, (match) => match.replace(/[-_]/, ' ').toUpperCase());
@@ -315,9 +315,6 @@ function Settings({ config, setConfig, onApply }) {
   const update = (name,value) => setConfig((current)=>({...current,[name]:value}));
   const selectedCompletionTargets = Array.isArray(config.completionToValues) && config.completionToValues.length ? config.completionToValues : ['Ready for Review (Demoed)'];
   const toggleCompletionTarget = (target) => {
-    // Keep the burndown target selection as a real multiselect. Dashboard
-    // viewers can burn down to one status, or to several acceptable terminal
-    // Business Tested & Approved values, without changing source code.
     const nextTargets = selectedCompletionTargets.includes(target)
       ? selectedCompletionTargets.filter((value) => value !== target)
       : [...selectedCompletionTargets, target];
