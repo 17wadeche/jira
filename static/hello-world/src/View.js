@@ -218,7 +218,7 @@ function PeopleFilter({ assignees, labels, selectedAssignees, displayMode, teamL
     const next = selectedAssignees.includes(assignee) ? selectedAssignees.filter((selected) => selected !== assignee) : [...selectedAssignees, assignee];
     onChange(next);
   };
-  return <div className="peopleFilter"><span>People</span><div className="menuWrap">
+  return <div className="peopleFilter"><span>People:</span><div className="menuWrap">
     <button type="button" className="peopleFilterButton" aria-haspopup="true" aria-expanded={open} onClick={()=>setOpen(!open)}><span className="peopleButtonContent"><span className="peopleStack" aria-hidden="true"><i>JS</i><i>CR</i></span><span><b>{label}</b><small>{allPeopleSelected ? `${assignees.length} available` : 'Selected for this chart'}</small></span></span><span className="peopleChevron" aria-hidden="true">⌄</span></button>
     {open&&<div className="popover peoplePopover">
       <div className="peoplePopoverHeader"><b>Select people</b><small>Filter the work shown on the chart</small></div>
