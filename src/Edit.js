@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { view } from '@forge/bridge';
 import './App.css';
-
 const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval - dash"',
   rangeCount: 6,
@@ -26,11 +25,7 @@ const DEFAULT_CONFIG = {
   targetLabel: '',
   completionToValues: ['Ready for Review (Demoed)']
 };
-
-// Forge may HTML-escape ampersands while transporting gadget configuration.
-// Decode it before displaying or re-saving the JQL so the Jira API receives valid syntax.
 const decodeJql = (value) => String(value || '').replace(/&(?:amp|#38|#x26);/gi, '&');
-
 function readConfigFromContext(context) {
   return (
     context?.extension?.gadgetConfiguration ||
@@ -39,11 +34,9 @@ function readConfigFromContext(context) {
     {}
   );
 }
-
 function Edit() {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
     view.getContext()
       .then((context) => {
@@ -55,21 +48,17 @@ function Edit() {
       })
       .finally(() => setLoading(false));
   }, []);
-
   function update(name, value) {
     setConfig((current) => ({
       ...current,
       [name]: value
     }));
   }
-
   function updateCheckbox(name, event) {
     update(name, event.target.checked);
   }
-
   function submit(event) {
     event.preventDefault();
-
     view.submit({
       ...config,
       jql: decodeJql(config.jql),
@@ -78,18 +67,14 @@ function Edit() {
       capacityCoefficient: Number(config.capacityCoefficient || 100)
     });
   }
-
   if (loading) {
     return <div className="editPage">Loading configuration...</div>;
   }
-
   return (
     <form className="editPage" onSubmit={submit}>
       <header className="editHeader"><span className="editEyebrow">Dashboard gadget</span><h2>TWD Burndown Configuration</h2><p>Choose the Jira work, reporting window, and forecast details shown in this gadget.</p></header>
-
       <section className="editSection">
         <h3>Data source</h3><p className="sectionDescription">Use a saved filter or JQL query to choose the issues included in the burndown.</p>
-
         <label>
           Saved filter / JQL
           <textarea
@@ -99,22 +84,18 @@ function Edit() {
           />
         </label>
       </section>
-
       <section className="editSection">
         <h3>Calculation</h3><p className="sectionDescription">Define when work counts as complete and how the reporting timeline is grouped.</p>
-
         <label>
           Complete when
           <div className="selectedSetting">
             Business Tested &amp; Approved changes to selected target values
           </div>
         </label>
-
         <label>
           Completion date
           <div className="selectedSetting">Updated</div>
         </label>
-
         <div className="editGrid">
           <label>
             Last
@@ -125,7 +106,6 @@ function Edit() {
               onChange={(event) => update('rangeCount', event.target.value)}
             />
           </label>
-
           <label>
             Range unit
             <select
@@ -139,7 +119,6 @@ function Edit() {
               <option value="quarters">Quarters</option>
             </select>
           </label>
-
           <label>
             Group
             <select
@@ -155,10 +134,8 @@ function Edit() {
           </label>
         </div>
       </section>
-
       <section className="editSection">
         <h3>Metrics</h3><p className="sectionDescription">Choose the lines and labels displayed on the chart.</p>
-
         <label className="checkRow">
           <input
             type="checkbox"
@@ -167,7 +144,6 @@ function Edit() {
           />
           Completed work
         </label>
-
         <label className="checkRow">
           <input
             type="checkbox"
@@ -176,7 +152,6 @@ function Edit() {
           />
           Remaining work
         </label>
-
         <label className="checkRow">
           <input
             type="checkbox"
@@ -185,7 +160,6 @@ function Edit() {
           />
           Total work
         </label>
-
         <label className="checkRow">
           <input
             type="checkbox"
@@ -195,10 +169,8 @@ function Edit() {
           Show value labels
         </label>
       </section>
-
       <section className="editSection">
         <h3>Forecast</h3><p className="sectionDescription">Project remaining work using recent delivery velocity and available capacity.</p>
-
         <label className="checkRow">
           <input
             type="checkbox"
@@ -207,7 +179,6 @@ function Edit() {
           />
           Display forecast
         </label>
-
         <div className="editGrid">
           <label>
             Forecast months
@@ -219,7 +190,6 @@ function Edit() {
               onChange={(event) => update('forecastMonths', event.target.value)}
             />
           </label>
-
           <label>
             Capacity allocation coefficient %
             <input
@@ -231,10 +201,8 @@ function Edit() {
           </label>
         </div>
       </section>
-
       <section className="editSection">
         <h3>Scenarios</h3><p className="sectionDescription">Only selected scenarios appear on the chart and in the forecast table.</p>
-
         <label className="checkRow">
           <input
             type="checkbox"
@@ -243,7 +211,6 @@ function Edit() {
           />
           Max
         </label>
-
         <label className="checkRow">
           <input
             type="checkbox"
@@ -252,7 +219,6 @@ function Edit() {
           />
           Average
         </label>
-
         <label className="checkRow">
           <input
             type="checkbox"
@@ -262,10 +228,8 @@ function Edit() {
           Min
         </label>
       </section>
-
       <section className="editSection">
         <h3>Bottom panels</h3><p className="sectionDescription">Choose the supporting detail shown beneath the chart.</p>
-
         <label className="checkRow">
           <input
             type="checkbox"
@@ -274,7 +238,6 @@ function Edit() {
           />
           Show breakdown
         </label>
-
         <label className="checkRow">
           <input
             type="checkbox"
@@ -283,7 +246,6 @@ function Edit() {
           />
           Show remaining issues
         </label>
-
         <label>
           Target label
           <input
@@ -293,7 +255,6 @@ function Edit() {
           />
         </label>
       </section>
-
       <div className="editActions">
         <button type="button" className="secondaryButton" onClick={view.close}>
           Cancel
@@ -303,5 +264,4 @@ function Edit() {
     </form>
   );
 }
-
 export default Edit;

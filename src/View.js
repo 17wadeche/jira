@@ -1,13 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import './App.css';
-
 const DEFAULT_CONFIG = {
   jql: 'filter = "Replan - Business Testing & Approval - dash"', rangeMode: 'since', rangeCount: 6, rangeUnit: 'biweeks', sinceDate: '2026-06-01', fixedFrom: '', fixedTo: '', groupBy: 'weekly',
   showCompleted: true, showRemaining: true, showTotal: true, showValueLabels: true, showForecast: true,
   forecastMonths: 1, capacityCoefficient: 100, scenarioMax: true, scenarioAverage: true, scenarioMin: true,
   showBreakdown: true, showRemainingIssues: true, assignees: [], peopleDisplay: 'combined', completionToValues: ['Ready for Review (Demoed)']
 };
-
 const MOCK_DATA = {
   config: DEFAULT_CONFIG,
   metrics: { completedPercent: 72, scopeChange: 47, completedWork: 92, activeInterval: 0, remainingWork: 47, totalWork: 168 },
@@ -32,25 +30,17 @@ const MOCK_DATA = {
     {key:'TWD-58',summary:'Prepare final complaint resolution',businessTestedApproved:'Reviewing',assignee:'Unassigned',parent:'No parent',updated:'2024-04-19T09:45:00.000Z',url:'/browse/TWD-58'}
   ]
 };
-
 const PEOPLE_GROUP_LABEL = 'BizTestTeam';
 const PEOPLE_GROUP_SELECTOR = `label:${PEOPLE_GROUP_LABEL}`;
 const COMPLETION_STATUS_OPTIONS = ['Approved', 'Ready for Review (Demoed)'];
-
 const isLocalPreview = () => ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const displayValue = (value) => String(value || '').replace(/(^|[-_])\w/g, (match) => match.replace(/[-_]/, ' ').toUpperCase());
 const decodeJql = (value) => String(value || '').replace(/&(?:amp|#38|#x26);/gi, '&');
-
 function forecastIntervalLimit(config) {
   const months = Math.min(24, Math.max(1, Number(config.forecastMonths) || 1));
   const groupBy = config.groupBy || 'weekly';
-
-  // Forecast horizons are selected in calendar months because that is how viewers
-  // plan ahead. Convert that calendar window into the chart's current grouping so
-  // daily, weekly, and other views all stop at the same requested future date.
   if (groupBy === 'monthly') return Math.ceil(months);
   if (groupBy === 'quarterly') return Math.ceil(months / 3);
-
   const today = new Date();
   const horizon = new Date(today);
   horizon.setMonth(horizon.getMonth() + months);
@@ -58,7 +48,6 @@ function forecastIntervalLimit(config) {
   const daysPerInterval = groupBy === 'daily' ? 1 : groupBy === 'biweekly' ? 14 : 7;
   return Math.ceil(days / daysPerInterval);
 }
-
 function makeForecast(series, scenario, intervalLimit) {
   const points = [];
   const startingRemaining = Number(series[series.length - 1]?.remaining) || 0;
@@ -68,11 +57,7 @@ function makeForecast(series, scenario, intervalLimit) {
   const completionIntervals = suppliedIntervals || naturalIntervals;
   const intervalCount = Math.min(104, intervalLimit, completionIntervals || intervalLimit);
   for (let interval = 1; interval <= intervalCount; interval += 1) {
-    // Force the final point to zero. Rounding and capacity adjustments can otherwise
-    // leave a tiny remainder and make a valid forecast line appear to lead nowhere.
     const completesHere = completionIntervals > 0 && interval === completionIntervals;
-    // Treat the projected completion interval as authoritative. This keeps a slower
-    // scenario above zero when its completion date falls beyond the selected horizon.
     const remaining = completionIntervals > 0
       ? Math.max(0, startingRemaining * (1 - interval / completionIntervals))
       : startingRemaining;
@@ -80,7 +65,6 @@ function makeForecast(series, scenario, intervalLimit) {
   }
   return points;
 }
-
 function Chart({ series, config, forecast, personSeries = [] }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const width = 1180, height = 390, padding = { top:36, right:34, bottom:92, left:54 };
@@ -109,13 +93,9 @@ function Chart({ series, config, forecast, personSeries = [] }) {
   const completionLabel = (scenario, points, offset, lane = 0, prefix = '') => {
     const endpointIndex = offset + points.length - 1;
     if (!points.length || !points[points.length - 1].complete) return null;
-
-    // Keep long date labels inside the SVG when the slowest scenario ends at the
-    // far-right edge of the chart.
     const endpointX = x(endpointIndex);
     const textAnchor = endpointX > width - 120 ? 'end' : endpointX < padding.left + 120 ? 'start' : 'middle';
     const labelX = endpointX + (textAnchor === 'end' ? -4 : textAnchor === 'start' ? 4 : 0);
-
     return <g className={`completionMarker ${scenario.key}Completion`}>
       <circle cx={endpointX} cy={y(0)} r="5"/>
       <line x1={endpointX} x2={endpointX} y1={y(0)+7} y2={y(0)+14+lane*16}/>
@@ -158,48 +138,33 @@ function Chart({ series, config, forecast, personSeries = [] }) {
     {hovered && <g className="chartTooltip" pointerEvents="none"><rect x={tooltipX} y={tooltipY} width="238" height="146" rx="4"/><text x={tooltipX+12} y={tooltipY+22} className="tooltipTitle">{hovered.label}</text><text x={tooltipX+12} y={tooltipY+48}>Total work<tspan x={tooltipX+218} textAnchor="end">{hovered.total}</tspan></text><text x={tooltipX+12} y={tooltipY+70}>Remaining work<tspan x={tooltipX+218} textAnchor="end">{hovered.remaining}</tspan></text><text x={tooltipX+12} y={tooltipY+92}>Completed work<tspan x={tooltipX+218} textAnchor="end">{hovered.completed}</tspan></text><text x={tooltipX+12} y={tooltipY+114}>Velocity<tspan x={tooltipX+218} textAnchor="end">{hoveredIndex ? Math.max(0, hovered.completed-series[hoveredIndex-1].completed) : 0}</tspan></text><text x={tooltipX+12} y={tooltipY+136} className="tooltipHint">Current interval details</text></g>}
   </svg>;
 }
-
 function Menu({ name, openMenu, setOpenMenu, children }) {
   return <div className="menuWrap"><button className={`toolButton ${openMenu===name?'selected':''}`} onClick={() => setOpenMenu(openMenu===name?'':name)}>{displayValue(name)}⌄</button>{openMenu===name && <div className={`popover ${name}Popover`}>{children}</div>}</div>;
 }
-
 function rangeButtonLabel(config) {
   if (config.rangeMode === 'since') return config.sinceDate ? `Since → ${config.sinceDate}` : 'Since';
   if (config.rangeMode === 'fixed') return config.fixedFrom && config.fixedTo ? `Fixed → ${config.fixedFrom} – ${config.fixedTo}` : 'Fixed';
   return `Last → ${config.rangeCount} ${config.rangeUnit === 'biweeks' ? 'Bi-weeks' : displayValue(config.rangeUnit)}`;
 }
-
 function RangeDateInput({ label, value, min, max, onChange }) {
-  // Native date inputs provide the browser's familiar calendar picker. The
-  // overlaid prompt keeps an empty field as clear as Jira's own range control,
-  // while pointer-events remain disabled so every click reaches the input.
   return <label className="rangeDateField">
     <span className="srOnly">{label}</span>
     {!value && <span className="rangeDatePrompt" aria-hidden="true">{label}</span>}
     <input className={value ? 'hasValue' : ''} type="date" aria-label={label} value={value} min={min} max={max} onChange={onChange}/>
   </label>;
 }
-
-
-
 function RangeMenu({ config, openMenu, setOpenMenu, onApply }) {
-  // Keep edits inside the popover until Apply is selected. This makes Cancel safe
-  // and mirrors Jira's native date-range controls rather than changing the chart
-  // while a viewer is still choosing dates.
   const [draft, setDraft] = useState(config);
   const isOpen = openMenu === 'range';
-
   useEffect(() => {
     if (isOpen) setDraft(config);
   }, [isOpen, config]);
-
   const update = (name, value) => setDraft((current) => ({ ...current, [name]: value }));
   const valid = draft.rangeMode === 'since'
     ? Boolean(draft.sinceDate)
     : draft.rangeMode === 'fixed'
       ? Boolean(draft.fixedFrom && draft.fixedTo && draft.fixedFrom <= draft.fixedTo)
       : Number(draft.rangeCount) > 0;
-
   return <div className="menuWrap">
     <button type="button" className={`toolButton ${isOpen ? 'selected' : ''}`} onClick={() => setOpenMenu(isOpen ? '' : 'range')}>{rangeButtonLabel(config)}⌄</button>
     {isOpen && <div className="popover rangePopover">
@@ -219,14 +184,11 @@ function RangeMenu({ config, openMenu, setOpenMenu, onApply }) {
     </div>}
   </div>;
 }
-
 function Caret({ expanded }) {
   return <span className="caret" aria-hidden="true">{expanded ? '⌄' : '›'}</span>;
 }
-
 function CollapsiblePanel({ title, children, actions }) {
   const [expanded, setExpanded] = useState(true);
-
   return <section className="bottomPanel">
     <div className="panelTitle">
       <button className="collapseButton" type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
@@ -238,13 +200,10 @@ function CollapsiblePanel({ title, children, actions }) {
   </section>;
 }
 function ForecastPanel({ rows, personSeries = [] }) {
-  // When several people are selected, each line has its own delivery history.
-  // Showing its forecast separately keeps the table consistent with the chart.
   const individualRows = personSeries.flatMap((person) => (person.forecast || []).map((row) => ({ ...row, assignee: person.assignee })));
   const displayedRows = individualRows.length ? individualRows : rows;
   return <CollapsiblePanel title="Forecast"><table className="dataTable"><thead><tr>{individualRows.length > 0 && <th>Person</th>}<th>Label</th><th>Type</th><th>Velocity</th><th>Complete date</th><th>Intervals</th></tr></thead><tbody>{displayedRows.map((row)=><tr key={`${row.assignee || 'team'}-${row.key}`}>{individualRows.length > 0 && <td>{row.assignee}</td>}<td><i className={`scenarioBox ${row.key}`}/> {row.label}</td><td>{row.type}</td><td>{row.velocity}</td><td>{row.completeDate}</td><td>{row.intervals} weeks</td></tr>)}</tbody></table></CollapsiblePanel>;
 }
-
 function BreakdownPanel({ breakdown }) {
   const groups = breakdown?.groups || [];
   const [expandedGroups, setExpandedGroups] = useState(() => new Set(groups.map((group) => group.label)));
@@ -257,12 +216,9 @@ function BreakdownPanel({ breakdown }) {
   const actions = <span className="panelActions"><button type="button" onClick={() => setAllGroups(false)}>Collapse all</button><button type="button" onClick={() => setAllGroups(true)}>Expand all</button></span>;
   return <CollapsiblePanel title="Breakdown" actions={actions}><table className="dataTable"><thead><tr><th>Metrics</th><th>Total</th></tr></thead><tbody><tr className="highlightRow"><td><span className="caretPlaceholder">⌄</span><i className="legendDot remaining"/> Remaining work</td><td>{breakdown?.total || 0}</td></tr>{groups.map((group)=>{const expanded=expandedGroups.has(group.label);return <React.Fragment key={group.label}><tr className="groupRow"><td><button type="button" className="rowCollapseButton" aria-expanded={expanded} onClick={()=>toggleGroup(group.label)}><Caret expanded={expanded}/>{group.label}</button></td><td><i className="bar"><i style={{width:`${group.percent}%`}}/></i>{group.total} ({group.percent}%)</td></tr>{expanded&&group.children.map((child)=><tr className="childRow" key={`${group.label}-${child.label}`}><td>{child.label}</td><td><i className="dotBar">{Array.from({length:Math.min(child.total,16)}).map((_,i)=><i key={i}/>)}</i>{child.total} ({child.percent}%)</td></tr>)}</React.Fragment>;})}</tbody></table></CollapsiblePanel>;
 }
-
 function IssuesPanel({ issues }) {
   const formatUpdated = (value) => value ? new Date(value).toLocaleString() : 'Not available';
   const openIssue = async (event, issueUrl) => {
-    // A relative Jira issue URL cannot be opened directly from the Forge Custom UI iframe.
-    // Forge's router safely asks the Jira host page to perform the same-site navigation.
     if (isLocalPreview()) return;
     event.preventDefault();
     const { router } = await import('@forge/bridge');
@@ -270,7 +226,6 @@ function IssuesPanel({ issues }) {
   };
   return <CollapsiblePanel title={<>Remaining work ({issues.length}): <i className="legendDot remaining"/> Remaining work</>}><table className="dataTable"><thead><tr><th>Key</th><th>Summary</th><th>Business Tested &amp; Approved</th><th>Assignee</th><th>Parent</th><th>Updated</th></tr></thead><tbody>{issues.map((issue)=><tr key={issue.key}><td><a href={issue.url} onClick={(event)=>openIssue(event,issue.url)}>{issue.key}</a></td><td>{issue.summary}</td><td><span className="statusPill">{issue.businessTestedApproved}</span></td><td>◉ {issue.assignee}</td><td>{issue.parent}</td><td>{formatUpdated(issue.updated)}</td></tr>)}</tbody></table></CollapsiblePanel>;
 }
-
 function initials(name) {
   return String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 }  const [open, setOpen] = useState(false);
@@ -279,9 +234,6 @@ function PeopleFilter({ assignees, labels, selectedAssignees, displayMode, onCha
   const [query, setQuery] = useState('');
   const allPeopleSelected = selectedAssignees.length === 0;
   const canSeparateSelectedPeople = selectedAssignees.length > 1 || selectedAssignees.includes(PEOPLE_GROUP_SELECTOR);
-  // Only the intentionally supported team label should appear as a group.
-  // Other Jira labels are data attributes, not people groups, and listing all of
-  // them made the picker noisy for dashboard viewers.
   const groupLabels = labels.includes(PEOPLE_GROUP_LABEL) ? [PEOPLE_GROUP_LABEL] : [];
   const options = [...groupLabels.map((label) => ({ value: `label:${label}`, label, isGroup: true })), ...assignees.map((assignee) => ({ value: assignee, label: assignee, isGroup: false }))];
   const filteredOptions = options.filter((option) => option.label.toLowerCase().includes(query.toLowerCase()));
@@ -302,18 +254,14 @@ function PeopleFilter({ assignees, labels, selectedAssignees, displayMode, onCha
     </div>}
   </div></div>;
 }
-
 function SettingsSection({ title, initiallyExpanded = true, children }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
   return <section className="settingsSection"><button type="button" className="accordion" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}><Caret expanded={expanded}/>{title}</button>{expanded && <div className="settingsSectionContent">{children}</div>}</section>;
 }
-
 function Settings({ config, setConfig, onApply }) {
   const update = (name,value) => setConfig((current)=>({...current,[name]:value}));
   const selectedCompletionTargets = Array.isArray(config.completionToValues) && config.completionToValues.length ? config.completionToValues : ['Ready for Review (Demoed)'];
   const toggleCompletionTarget = (target) => {
-    // Keep the burndown target selection as a real multiselect. Dashboard
-    // viewers can burn down to one status, or to several acceptable terminal
     const nextTargets = selectedCompletionTargets.includes(target)
       ? selectedCompletionTargets.filter((value) => value !== target)
       : [...selectedCompletionTargets, target];
@@ -324,7 +272,6 @@ function Settings({ config, setConfig, onApply }) {
     <SettingsSection title="Completion targets"><p className="popoverHelp">Count work as burned down when Business Tested &amp; Approved is changed to any selected value.</p>{COMPLETION_STATUS_OPTIONS.map((target)=><label className="checkOption" key={target}><input type="checkbox" checked={selectedCompletionTargets.includes(target)} onChange={()=>toggleCompletionTarget(target)}/>{target}</label>)}</SettingsSection>
     <button type="button" className="primaryButton" onClick={()=>onApply({...config, completionToValues: selectedCompletionTargets})}>Apply settings</button></aside>;
 }
-
 function View() {
   const [data,setData]=useState(MOCK_DATA), [config,setConfig]=useState(DEFAULT_CONFIG), [loading,setLoading]=useState(!isLocalPreview()), [error,setError]=useState(''), [openMenu,setOpenMenu]=useState(''), [settings,setSettings]=useState(false);
   async function loadData(nextConfig=config) {
