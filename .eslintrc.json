@@ -1,6 +1,5 @@
 {
   "env": {
-    "root": true,
     "browser": true,
     "es2022": true,
     "node": true
@@ -17,5 +16,6 @@
   ],
   "rules": {
     "react-hooks/rules-of-hooks": "error"
-  }
+  },
+  "root": true
 }
