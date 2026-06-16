@@ -243,8 +243,8 @@ function Settings({ config, setConfig, onApply }) {
     update('completionToValues', nextTargets.length ? nextTargets : [target]);
   };
   const targetDescriptions = {
-    Approved: 'Final business acceptance is complete and ready to burn down.',
-    'Ready for Review (Demoed)': 'Demo completed and the item is waiting for final acceptance.'
+    Approved: '',
+    'Ready for Review (Demoed)': ''
   };
   const applySettings = () => onApply({...config, completionToValues: selectedCompletionTargets});
   return <aside className="settings"><div className="selectedChartType"><span className="chartTypeIcon">↘</span><span><b>Burndown chart</b><small>Track completed and remaining work over time</small></span></div>
