@@ -1,28 +1,7 @@
 import Resolver from '@forge/resolver';
 import api, { route } from '@forge/api';
+import { DEFAULT_CONFIG, PEOPLE_GROUP_LABEL } from './config';
 const resolver = new Resolver();
-const TEAM_LABEL = 'BizTestTeam';
-const DEFAULT_CONFIG = {
-  jql: 'filter = "Replan - Business Testing & Approval - dash"',
-  rangeMode: 'since',
-  rangeCount: 6,
-  rangeUnit: 'biweeks',
-  sinceDate: '2026-06-01',
-  fixedFrom: '',
-  fixedTo: '',
-  groupBy: 'weekly',
-  showCompleted: true,
-  showRemaining: true,
-  showTotal: true,
-  showValueLabels: true,
-  showForecast: true,
-  forecastMonths: 1,
-  showBreakdown: true,
-  showRemainingIssues: true,
-  assignees: [],
-  peopleDisplay: 'combined',
-  completionToValues: ['Ready for Review (Demoed)']
-};
 function startOfWeek(date) {
   const result = new Date(date);
   result.setDate(result.getDate() - result.getDay());
@@ -227,7 +206,8 @@ resolver.define('getBurndownData', async ({ payload }) => {
     completedDate: findCompletedDate(issue, historiesByIssueId.get(issue.id) || [], completionField.id, config.completionToValues)
   }));
   const assignees = [...new Set(issues.map((issue) => issue.assignee))].sort((a, b) => a.localeCompare(b));
-  const labels = issues.some((issue) => issue.labels.includes(TEAM_LABEL)) ? [TEAM_LABEL] : [];
+  const teamLabel = config.targetLabel || PEOPLE_GROUP_LABEL;
+  const labels = issues.some((issue) => issue.labels.includes(teamLabel)) ? [teamLabel] : [];
   const selectedAssignees = Array.isArray(config.assignees) && config.assignees.length
     ? config.assignees
     : config.assignee && config.assignee !== 'all' ? [config.assignee] : [];

@@ -1,30 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { view } from '@forge/bridge';
+import { COMPLETION_STATUS_OPTIONS, DEFAULT_CONFIG, PEOPLE_GROUP_LABEL } from './config';
 import './App.css';
-const DEFAULT_CONFIG = {
-  jql: 'filter = "Replan - Business Testing & Approval - dash"',
-  rangeCount: 6,
-  rangeMode: 'since',
-  rangeUnit: 'biweeks',
-  sinceDate: '2026-06-01',
-  fixedFrom: '',
-  fixedTo: '',
-  groupBy: 'weekly',
-  showCompleted: true,
-  showRemaining: true,
-  showTotal: true,
-  showValueLabels: true,
-  showForecast: true,
-  forecastMonths: 1,
-  capacityCoefficient: 100,
-  scenarioMax: true,
-  scenarioAverage: true,
-  scenarioMin: true,
-  showBreakdown: true,
-  showRemainingIssues: true,
-  targetLabel: '',
-  completionToValues: ['Ready for Review (Demoed)']
-};
 const decodeJql = (value) => String(value || '').replace(/&(?:amp|#38|#x26);/gi, '&');
 function readConfigFromContext(context) {
   return (
@@ -57,6 +34,13 @@ function Edit() {
   function updateCheckbox(name, event) {
     update(name, event.target.checked);
   }
+  const selectedCompletionTargets = Array.isArray(config.completionToValues) && config.completionToValues.length ? config.completionToValues : DEFAULT_CONFIG.completionToValues;
+  function toggleCompletionTarget(target) {
+    const nextTargets = selectedCompletionTargets.includes(target)
+      ? selectedCompletionTargets.filter((value) => value !== target)
+      : [...selectedCompletionTargets, target];
+    update('completionToValues', nextTargets.length ? nextTargets : [target]);
+  }
   function submit(event) {
     event.preventDefault();
     view.submit({
@@ -64,7 +48,8 @@ function Edit() {
       jql: decodeJql(config.jql),
       rangeCount: Number(config.rangeCount || 6),
       forecastMonths: Number(config.forecastMonths || 1),
-      capacityCoefficient: Number(config.capacityCoefficient || 100)
+      capacityCoefficient: Number(config.capacityCoefficient || 100),
+      completionToValues: selectedCompletionTargets
     });
   }
   if (loading) {
@@ -92,11 +77,37 @@ function Edit() {
             Business Tested &amp; Approved changes to selected target values
           </div>
         </label>
+        {COMPLETION_STATUS_OPTIONS.map((target) => (
+          <label className="checkRow" key={target}>
+            <input type="checkbox" checked={selectedCompletionTargets.includes(target)} onChange={() => toggleCompletionTarget(target)} />
+            {target}
+          </label>
+        ))}
         <label>
           Completion date
           <div className="selectedSetting">Updated</div>
         </label>
         <div className="editGrid">
+          <label>
+            Date range
+            <select value={config.rangeMode} onChange={(event) => update('rangeMode', event.target.value)}>
+              <option value="last">Last</option>
+              <option value="since">Since</option>
+              <option value="fixed">Fixed</option>
+            </select>
+          </label>
+          <label>
+            Since
+            <input type="date" value={config.sinceDate} onChange={(event) => update('sinceDate', event.target.value)} />
+          </label>
+          <label>
+            Fixed from
+            <input type="date" value={config.fixedFrom} max={config.fixedTo || undefined} onChange={(event) => update('fixedFrom', event.target.value)} />
+          </label>
+          <label>
+            Fixed to
+            <input type="date" value={config.fixedTo} min={config.fixedFrom || undefined} onChange={(event) => update('fixedTo', event.target.value)} />
+          </label>
           <label>
             Last
             <input
@@ -227,6 +238,22 @@ function Edit() {
           />
           Min
         </label>
+      </section>
+      <section className="editSection">
+        <h3>People defaults</h3><p className="sectionDescription">Set the default people grouping used by the dashboard.</p>
+        <div className="editGrid">
+          <label>
+            Team label
+            <input value={config.targetLabel || PEOPLE_GROUP_LABEL} onChange={(event) => update('targetLabel', event.target.value)} />
+          </label>
+          <label>
+            People display
+            <select value={config.peopleDisplay} onChange={(event) => update('peopleDisplay', event.target.value)}>
+              <option value="combined">Combined</option>
+              <option value="separate">Individuals</option>
+            </select>
+          </label>
+        </div>
       </section>
       <section className="editSection">
         <h3>Bottom panels</h3><p className="sectionDescription">Choose the supporting detail shown beneath the chart.</p>
