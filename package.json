@@ -11,5 +11,10 @@
   "dependencies": {
     "@forge/api": "^7.2.2",
     "@forge/resolver": "1.8.0"
+  },
+  "scripts": {
+    "lint": "eslint src --ext .js",
+    "test": "echo \"No tests configured\"",
+    "build": "cd static/hello-world && npm run build"
   }
 }
