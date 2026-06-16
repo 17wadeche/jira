@@ -2,21 +2,29 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { COMPLETION_STATUS_OPTIONS, DEFAULT_CONFIG, MOCK_DATA, PEOPLE_GROUP_LABEL } from './config';
 import './App.css';
 const isLocalPreview = () => ['localhost', '127.0.0.1'].includes(window.location.hostname);
-const DASHBOARD_CONFIG_STORAGE_KEY = 'jira-dashboard:last-view-config';
-function readSavedDashboardConfig() {
+const DASHBOARD_CONFIG_STORAGE_PREFIX = 'jira-dashboard:last-view-config';
+function dashboardConfigStorageKey(context) {
+  const contextKey = [context?.cloudId, context?.localId || context?.extension?.localId || context?.extension?.gadgetId || context?.extension?.id, context?.moduleKey || context?.extension?.moduleKey]
+    .filter(Boolean)
+    .join(':');
+  return `${DASHBOARD_CONFIG_STORAGE_PREFIX}:${contextKey || window.location.pathname}`;
+}
+function readSavedDashboardConfig(storageKey) {
   try {
-    const value = window.localStorage.getItem(DASHBOARD_CONFIG_STORAGE_KEY);
+    const value = window.localStorage.getItem(storageKey);
     return value ? JSON.parse(value) : {};
   } catch (error) {
     console.warn('Could not read saved dashboard configuration.', error);
     return {};
   }
 }
-function saveDashboardConfig(config) {
+function saveDashboardConfig(storageKey, config) {
   try {
-    window.localStorage.setItem(DASHBOARD_CONFIG_STORAGE_KEY, JSON.stringify(config));
+    window.localStorage.setItem(storageKey, JSON.stringify(config));
+    return true;
   } catch (error) {
     console.warn('Could not save dashboard configuration.', error);
+    return false;
   }
 }
 const displayValue = (value) => String(value || '').replace(/(^|[-_])\w/g, (match) => match.replace(/[-_]/, ' ').toUpperCase());
@@ -271,8 +279,9 @@ function Settings({ config, setConfig, onApply }) {
     <div className="settingsApplyBar"><button type="button" className="primaryButton" onClick={applySettings}>Apply settings</button><small>Updates the chart using your selected completion targets.</small></div></aside>;
 }
 function View() {
-  const initialConfig = useMemo(() => ({ ...DEFAULT_CONFIG, ...readSavedDashboardConfig() }), []);
-  const [data,setData]=useState(MOCK_DATA), [config,setConfig]=useState(initialConfig), [loading,setLoading]=useState(!isLocalPreview()), [error,setError]=useState(''), [openMenu,setOpenMenu]=useState(''), [settings,setSettings]=useState(false), [lastUpdated,setLastUpdated]=useState(isLocalPreview()?new Date():null), [preferencesLoaded,setPreferencesLoaded]=useState(isLocalPreview());
+  const initialStorageKey = useMemo(() => dashboardConfigStorageKey(), []);
+  const initialConfig = useMemo(() => ({ ...DEFAULT_CONFIG, ...readSavedDashboardConfig(initialStorageKey) }), [initialStorageKey]);
+  const [data,setData]=useState(MOCK_DATA), [config,setConfig]=useState(initialConfig), [loading,setLoading]=useState(!isLocalPreview()), [error,setError]=useState(''), [openMenu,setOpenMenu]=useState(''), [settings,setSettings]=useState(false), [lastUpdated,setLastUpdated]=useState(isLocalPreview()?new Date():null), [storageKey,setStorageKey]=useState(initialStorageKey), [saveStatus,setSaveStatus]=useState('');
   async function loadData(nextConfig=config) {
     const normalizedConfig = {...nextConfig, jql: decodeJql(nextConfig.jql)};
     setConfig(normalizedConfig);
@@ -286,8 +295,12 @@ function View() {
       setData(result);setLastUpdated(new Date());
     } catch(err){setError(err.message||String(err));} finally{setLoading(false);}
   }
-  useEffect(()=>{ if(isLocalPreview())return; import('@forge/bridge').then(({view})=>view.getContext()).then((context)=>{const saved=context?.extension?.gadgetConfiguration||{};const locallySaved=readSavedDashboardConfig();const next={...DEFAULT_CONFIG,...saved,...locallySaved,jql:decodeJql(locallySaved.jql||saved.jql||DEFAULT_CONFIG.jql)};setPreferencesLoaded(true);setConfig(next);loadData(next);}).catch(()=>{const next={...DEFAULT_CONFIG,...readSavedDashboardConfig()};setPreferencesLoaded(true);loadData(next);}); },[]);
-  useEffect(()=>{ if(preferencesLoaded) saveDashboardConfig(config); },[config, preferencesLoaded]);6
+  useEffect(()=>{ if(isLocalPreview())return; import('@forge/bridge').then(({view})=>view.getContext()).then((context)=>{const nextStorageKey=dashboardConfigStorageKey(context);const saved=context?.extension?.gadgetConfiguration||{};const locallySaved=readSavedDashboardConfig(nextStorageKey);const next={...DEFAULT_CONFIG,...saved,...locallySaved,jql:decodeJql(locallySaved.jql||saved.jql||DEFAULT_CONFIG.jql)};setStorageKey(nextStorageKey);setConfig(next);loadData(next);}).catch(()=>{const next={...DEFAULT_CONFIG,...readSavedDashboardConfig(storageKey)};loadData(next);}); },[]);
+  const saveCurrentView = () => {
+    const saved = saveDashboardConfig(storageKey, config);
+    setSaveStatus(saved ? 'Saved view' : 'Could not save view');
+    if (saved) window.setTimeout(() => setSaveStatus(''), 2500);
+  };
   const metrics=data.metrics||MOCK_DATA.metrics, legend=useMemo(()=>[['Completed work',metrics.completedWork,'completed'],['Completed this interval',metrics.activeInterval,'active'],['Remaining work',metrics.remainingWork,'remaining'],['Total work',metrics.totalWork,'total']], [metrics]);
   const kpis = [['Completed', `${metrics.completedPercent}%`, ''], ['Remaining', metrics.remainingWork, 'Work open'], ['This interval', metrics.activeInterval, 'Completed recently'], ['Total work', metrics.totalWork]];
   const healthTone = metrics.completedPercent >= 75 ? 'success' : metrics.completedPercent >= 45 ? 'warning' : 'critical';
@@ -305,7 +318,7 @@ function View() {
       ? `Burndown Chart For ${selectedAssignees[0].replace(/^label:/, '')}`
       : `Burndown Chart For ${selectedAssignees.length} People`;
   if(error) return <main className="page errorState"><h2>Could not load burndown data</h2><p>{error}</p><button onClick={()=>loadData()}>Retry</button></main>;
-  return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown{lastUpdated && ` · Last refreshed ${lastUpdated.toLocaleString()}`}</span></div><div className="headerActions"><PeopleFilter assignees={assignees} labels={groupLabels} selectedAssignees={selectedAssignees} displayMode={config.peopleDisplay} teamLabel={teamLabel} onChange={(nextAssignees)=>loadData({...config,assignee:'all',assignees:nextAssignees})} onDisplayModeChange={(peopleDisplay)=>setConfig({...config,peopleDisplay})}/><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
+  return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown{lastUpdated && ` · Last refreshed ${lastUpdated.toLocaleString()}`}</span></div><div className="headerActions"><PeopleFilter assignees={assignees} labels={groupLabels} selectedAssignees={selectedAssignees} displayMode={config.peopleDisplay} teamLabel={teamLabel} onChange={(nextAssignees)=>loadData({...config,assignee:'all',assignees:nextAssignees})} onDisplayModeChange={(peopleDisplay)=>setConfig({...config,peopleDisplay})}/><button className="secondaryButton" onClick={saveCurrentView}>💾 Save view</button><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button>{saveStatus&&<span className="saveStatus" role="status">{saveStatus}</span>}</div></header>
     <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><RangeMenu config={config} openMenu={openMenu} setOpenMenu={setOpenMenu} onApply={loadData}/><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Choose a calendar-month horizon. Lines that complete later stop at the edge of that window.</p><label>Forecast months<input type="number" min="1" max="24" value={config.forecastMonths} onChange={(e)=>setConfig({...config,forecastMonths:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
     <section className="insightHero" aria-label="Burndown summary"><div className="progressOrb" style={{'--progress': `${Math.min(100, Math.max(0, metrics.completedPercent || 0))}%`}}><span>{metrics.completedPercent}%</span><small>complete</small></div><div><h2>{metrics.remainingWork} items remain across {metrics.totalWork} total work items</h2></div></section>
     <div className="chartHeader"><div><b>Burndown chart</b>{config.peopleDisplay === 'separate' && personSeries.length > 1 && <div className="personLegend">{personSeries.map((person,index)=><span key={person.assignee}><i style={{background:['#0c66e4','#bf63f3','#e56910','#22a06b','#f15b50','#6e5dc6'][index%6]}}/>{person.assignee}</span>)}<span className="personMetricKey"><i className="remainingSample"/>Solid = remaining</span><span className="personMetricKey"><i className="completedSample"/>Dotted = completed</span></div>}</div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast} personSeries={personSeries}/>}
