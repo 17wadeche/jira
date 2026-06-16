@@ -1,38 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { COMPLETION_STATUS_OPTIONS, DEFAULT_CONFIG, MOCK_DATA, PEOPLE_GROUP_LABEL } from './config';
 import './App.css';
-const DEFAULT_CONFIG = {
-  jql: 'filter = "Replan - Business Testing & Approval - dash"', rangeMode: 'since', rangeCount: 6, rangeUnit: 'biweeks', sinceDate: '2026-06-01', fixedFrom: '', fixedTo: '', groupBy: 'weekly',
-  showCompleted: true, showRemaining: true, showTotal: true, showValueLabels: true, showForecast: true,
-  forecastMonths: 1, capacityCoefficient: 100, scenarioMax: true, scenarioAverage: true, scenarioMin: true,
-  showBreakdown: true, showRemainingIssues: true, assignees: [], peopleDisplay: 'combined', completionToValues: ['Ready for Review (Demoed)']
-};
-const MOCK_DATA = {
-  config: DEFAULT_CONFIG,
-  metrics: { completedPercent: 72, scopeChange: 47, completedWork: 92, activeInterval: 0, remainingWork: 47, totalWork: 168 },
-  series: [
-    ['Feb 1 - Feb 7',121,0,121],['Feb 8 - Feb 14',121,10,111],['Feb 15 - Feb 21',121,10,111],['Feb 22 - Feb 28',121,16,105],
-    ['Feb 29 - Mar 6',121,34,87],['Mar 7 - Mar 13',121,34,87],['Mar 14 - Mar 20',121,52,69],['Mar 21 - Mar 27',121,52,69],
-    ['Mar 28 - Apr 3',121,64,57],['Apr 4 - Apr 10',168,64,104],['Apr 11 - Apr 17',168,92,76],['Apr 18 - Apr 24',168,92,47]
-  ].map(([label,total,completed,remaining]) => ({ label,total,completed,remaining })),
-  forecast: [
-    { label:'Max',key:'max',type:'Auto',velocity:28,completeDate:'05/08/2024',intervals:2 },
-    { label:'Average',key:'average',type:'Auto',velocity:8,completeDate:'06/05/2024',intervals:6 },
-    { label:'Min',key:'min',type:'Auto',velocity:12,completeDate:'05/22/2024',intervals:4 }
-  ],
-  breakdown: { total:47, groups:[
-    { label:'TWD Complaints',total:22,percent:47,children:[{label:'Bug',total:8,percent:36},{label:'Story',total:9,percent:41},{label:'Task',total:5,percent:23}] },
-    { label:'Business Approval',total:15,percent:32,children:[{label:'Story',total:9,percent:60},{label:'Task',total:6,percent:40}] },
-    { label:'No parent',total:10,percent:21,children:[{label:'Task',total:10,percent:100}] }
-  ]},
-  remainingIssues: [
-    {key:'TWD-47',summary:'Validate complaint outcome and customer response',businessTestedApproved:'Reviewing',assignee:'Joe Alpha',parent:'TWD-12',updated:'2024-04-23T15:30:00.000Z',url:'/browse/TWD-47'},
-    {key:'TWD-51',summary:'Complete business approval evidence',businessTestedApproved:'Not set',assignee:'Joe Alpha',parent:'TWD-12',updated:'2024-04-22T12:15:00.000Z',url:'/browse/TWD-51'},
-    {key:'TWD-58',summary:'Prepare final complaint resolution',businessTestedApproved:'Reviewing',assignee:'Unassigned',parent:'No parent',updated:'2024-04-19T09:45:00.000Z',url:'/browse/TWD-58'}
-  ]
-};
-const PEOPLE_GROUP_LABEL = 'BizTestTeam';
-const PEOPLE_GROUP_SELECTOR = `label:${PEOPLE_GROUP_LABEL}`;
-const COMPLETION_STATUS_OPTIONS = ['Approved', 'Ready for Review (Demoed)'];
 const isLocalPreview = () => ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const displayValue = (value) => String(value || '').replace(/(^|[-_])\w/g, (match) => match.replace(/[-_]/, ' ').toUpperCase());
 const decodeJql = (value) => String(value || '').replace(/&(?:amp|#38|#x26);/gi, '&');
@@ -169,7 +137,8 @@ function RangeMenu({ config, openMenu, setOpenMenu, onApply }) {
     <button type="button" className={`toolButton ${isOpen ? 'selected' : ''}`} onClick={() => setOpenMenu(isOpen ? '' : 'range')}>{rangeButtonLabel(config)}⌄</button>
     {isOpen && <div className="popover rangePopover">
       <div className="rangeTabs" role="tablist" aria-label="Date range type">
-        {['last', 'since', 'fixed'].map((mode) => <button type="button" role="tab" aria-selected={draft.rangeMode === mode} className={draft.rangeMode === mode ? 'active' : ''} key={mode} onClick={(event) => { event.stopPropagation(); update('rangeMode', mode); }}>{displayValue(mode)}</button>)}      </div>
+        {['last', 'since', 'fixed'].map((mode) => <button type="button" role="tab" aria-selected={draft.rangeMode === mode} className={draft.rangeMode === mode ? 'active' : ''} key={mode} onClick={(event) => { event.stopPropagation(); update('rangeMode', mode); }}>{displayValue(mode)}</button>)}
+      </div>
       {draft.rangeMode === 'last' && <div className="rangeForm lastRangeForm">
         <label><span className="srOnly">Number of intervals</span><input type="number" min="1" value={draft.rangeCount} onChange={(event) => update('rangeCount', event.target.value)}/></label>
         <label><span className="srOnly">Range unit</span><select value={String(draft.rangeUnit).toLowerCase()} onChange={(event) => update('rangeUnit', event.target.value)}><option value="days">Days</option><option value="weeks">Weeks</option><option value="biweeks">Bi-weeks</option><option value="months">Months</option><option value="quarters">Quarters</option></select></label>
@@ -198,10 +167,11 @@ function CollapsiblePanel({ title, children, actions }) {
     {expanded && children}
   </section>;
 }
-function ForecastPanel({ rows, personSeries = [] }) {
+function ForecastPanel({ rows, personSeries = [], config }) {
+  const summary = `Based on ${config.groupBy || 'weekly'} grouping, ${config.forecastMonths || 1}-month horizon, and ${config.capacityCoefficient || 100}% capacity allocation.`;
   const individualRows = personSeries.flatMap((person) => (person.forecast || []).map((row) => ({ ...row, assignee: person.assignee })));
   const displayedRows = individualRows.length ? individualRows : rows;
-  return <CollapsiblePanel title="Forecast"><table className="dataTable"><thead><tr>{individualRows.length > 0 && <th>Person</th>}<th>Label</th><th>Type</th><th>Velocity</th><th>Complete date</th><th>Intervals</th></tr></thead><tbody>{displayedRows.map((row)=><tr key={`${row.assignee || 'team'}-${row.key}`}>{individualRows.length > 0 && <td>{row.assignee}</td>}<td><i className={`scenarioBox ${row.key}`}/> {row.label}</td><td>{row.type}</td><td>{row.velocity}</td><td>{row.completeDate}</td><td>{row.intervals} weeks</td></tr>)}</tbody></table></CollapsiblePanel>;
+  return <CollapsiblePanel title="Forecast"><p className="forecastSummary">{summary}</p><table className="dataTable"><thead><tr>{individualRows.length > 0 && <th>Person</th>}<th>Label</th><th>Type</th><th>Velocity</th><th>Complete date</th><th>Intervals</th></tr></thead><tbody>{displayedRows.map((row)=><tr key={`${row.assignee || 'team'}-${row.key}`}>{individualRows.length > 0 && <td>{row.assignee}</td>}<td><i className={`scenarioBox ${row.key}`}/> {row.label}</td><td>{row.type}</td><td>{row.velocity}</td><td>{row.completeDate}</td><td>{row.intervals} weeks</td></tr>)}</tbody></table></CollapsiblePanel>;
 }
 function BreakdownPanel({ breakdown }) {
   const groups = breakdown?.groups || [];
@@ -216,6 +186,8 @@ function BreakdownPanel({ breakdown }) {
   return <CollapsiblePanel title="Breakdown" actions={actions}><table className="dataTable"><thead><tr><th>Metrics</th><th>Total</th></tr></thead><tbody><tr className="highlightRow"><td><span className="caretPlaceholder">⌄</span><i className="legendDot remaining"/> Remaining work</td><td>{breakdown?.total || 0}</td></tr>{groups.map((group)=>{const expanded=expandedGroups.has(group.label);return <React.Fragment key={group.label}><tr className="groupRow"><td><button type="button" className="rowCollapseButton" aria-expanded={expanded} onClick={()=>toggleGroup(group.label)}><Caret expanded={expanded}/>{group.label}</button></td><td><i className="bar"><i style={{width:`${group.percent}%`}}/></i>{group.total} ({group.percent}%)</td></tr>{expanded&&group.children.map((child)=><tr className="childRow" key={`${group.label}-${child.label}`}><td>{child.label}</td><td><i className="dotBar">{Array.from({length:Math.min(child.total,16)}).map((_,i)=><i key={i}/>)}</i>{child.total} ({child.percent}%)</td></tr>)}</React.Fragment>;})}</tbody></table></CollapsiblePanel>;
 }
 function IssuesPanel({ issues }) {
+  const [sortBy, setSortBy] = useState('updated');
+  const [filter, setFilter] = useState('');
   const formatUpdated = (value) => value ? new Date(value).toLocaleString() : 'Not available';
   const openIssue = async (event, issueUrl) => {
     if (isLocalPreview()) return;
@@ -223,17 +195,21 @@ function IssuesPanel({ issues }) {
     const { router } = await import('@forge/bridge');
     await router.navigate(issueUrl);
   };
-  return <CollapsiblePanel title={<>Remaining work ({issues.length}): <i className="legendDot remaining"/> Remaining work</>}><table className="dataTable"><thead><tr><th>Key</th><th>Summary</th><th>Business Tested &amp; Approved</th><th>Assignee</th><th>Parent</th><th>Updated</th></tr></thead><tbody>{issues.map((issue)=><tr key={issue.key}><td><a href={issue.url} onClick={(event)=>openIssue(event,issue.url)}>{issue.key}</a></td><td>{issue.summary}</td><td><span className="statusPill">{issue.businessTestedApproved}</span></td><td>◉ {issue.assignee}</td><td>{issue.parent}</td><td>{formatUpdated(issue.updated)}</td></tr>)}</tbody></table></CollapsiblePanel>;
+  const isStale = (value) => value && Date.now() - new Date(value).getTime() > 7 * 86400000;
+  const filtered = issues.filter((issue) => [issue.key, issue.summary, issue.businessTestedApproved, issue.assignee, issue.parent].join(' ').toLowerCase().includes(filter.toLowerCase()));
+  const sorted = [...filtered].sort((a, b) => sortBy === 'updated' ? new Date(b.updated || 0) - new Date(a.updated || 0) : String(a[sortBy] || '').localeCompare(String(b[sortBy] || '')));
+  return <CollapsiblePanel title={<>Remaining work ({issues.length}): <i className="legendDot remaining"/> Remaining work</>}><div className="tableToolbar"><label>Filter<input value={filter} onChange={(event)=>setFilter(event.target.value)} placeholder="Key, summary, status, person…"/></label><label>Sort by<select value={sortBy} onChange={(event)=>setSortBy(event.target.value)}><option value="updated">Last updated</option><option value="assignee">Assignee</option><option value="businessTestedApproved">Approval status</option><option value="parent">Parent</option></select></label><span>{sorted.length} shown</span></div><table className="dataTable"><thead><tr><th>Key</th><th>Summary</th><th>Business Tested &amp; Approved</th><th>Assignee</th><th>Parent</th><th>Updated</th></tr></thead><tbody>{sorted.map((issue)=><tr key={issue.key} className={isStale(issue.updated)?'staleIssue':''}><td><a href={issue.url} onClick={(event)=>openIssue(event,issue.url)}>{issue.key}</a></td><td>{issue.summary}{isStale(issue.updated)&&<span className="riskPill">Stale</span>}</td><td><span className="statusPill">{issue.businessTestedApproved}</span></td><td>◉ {issue.assignee}</td><td>{issue.parent}</td><td>{formatUpdated(issue.updated)}</td></tr>)}</tbody></table></CollapsiblePanel>;
 }
 function initials(name) {
   return String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 }
-function PeopleFilter({ assignees, labels, selectedAssignees, displayMode, onChange, onDisplayModeChange }) {
+function PeopleFilter({ assignees, labels, selectedAssignees, displayMode, teamLabel, onChange, onDisplayModeChange }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const allPeopleSelected = selectedAssignees.length === 0;
-  const canSeparateSelectedPeople = selectedAssignees.length > 1 || selectedAssignees.includes(PEOPLE_GROUP_SELECTOR);
-  const groupLabels = labels.includes(PEOPLE_GROUP_LABEL) ? [PEOPLE_GROUP_LABEL] : [];
+  const groupSelector = `label:${teamLabel || PEOPLE_GROUP_LABEL}`;
+  const canSeparateSelectedPeople = selectedAssignees.length > 1 || selectedAssignees.includes(groupSelector);
+  const groupLabels = labels.includes(teamLabel || PEOPLE_GROUP_LABEL) ? [teamLabel || PEOPLE_GROUP_LABEL] : [];
   const options = [...groupLabels.map((label) => ({ value: `label:${label}`, label, isGroup: true })), ...assignees.map((assignee) => ({ value: assignee, label: assignee, isGroup: false }))];
   const filteredOptions = options.filter((option) => option.label.toLowerCase().includes(query.toLowerCase()));
   const displaySelector = (selector) => selector.replace(/^label:/, '');
@@ -268,28 +244,31 @@ function Settings({ config, setConfig, onApply }) {
   };
   return <aside className="settings"><div className="selectedChartType"><span className="chartTypeIcon">↘</span><span><b>Burndown chart</b><small>Track completed and remaining work over time</small></span></div>
     <SettingsSection title="Data source"><label>Custom JQL<textarea value={config.jql} onChange={(e)=>update('jql',e.target.value)}/></label></SettingsSection>
+    <SettingsSection title="People defaults"><label>Team label<input value={config.targetLabel || PEOPLE_GROUP_LABEL} onChange={(e)=>update('targetLabel',e.target.value)}/></label><label>Default people display<select value={config.peopleDisplay || 'combined'} onChange={(e)=>update('peopleDisplay',e.target.value)}><option value="combined">Combined</option><option value="separate">Individuals</option></select></label></SettingsSection>
     <SettingsSection title="Completion targets"><p className="popoverHelp">Count work as burned down when Business Tested &amp; Approved is changed to any selected value.</p>{COMPLETION_STATUS_OPTIONS.map((target)=><label className="checkOption" key={target}><input type="checkbox" checked={selectedCompletionTargets.includes(target)} onChange={()=>toggleCompletionTarget(target)}/>{target}</label>)}</SettingsSection>
     <button type="button" className="primaryButton" onClick={()=>onApply({...config, completionToValues: selectedCompletionTargets})}>Apply settings</button></aside>;
 }
 function View() {
-  const [data,setData]=useState(MOCK_DATA), [config,setConfig]=useState(DEFAULT_CONFIG), [loading,setLoading]=useState(!isLocalPreview()), [error,setError]=useState(''), [openMenu,setOpenMenu]=useState(''), [settings,setSettings]=useState(false);
+  const [data,setData]=useState(MOCK_DATA), [config,setConfig]=useState(DEFAULT_CONFIG), [loading,setLoading]=useState(!isLocalPreview()), [error,setError]=useState(''), [openMenu,setOpenMenu]=useState(''), [settings,setSettings]=useState(false), [lastUpdated,setLastUpdated]=useState(isLocalPreview()?new Date():null);
   async function loadData(nextConfig=config) {
     const normalizedConfig = {...nextConfig, jql: decodeJql(nextConfig.jql)};
     setConfig(normalizedConfig);
     setLoading(true);
     setError('');
     try {
-      if(isLocalPreview()){setData({...MOCK_DATA,config:normalizedConfig});return;}
+      if(isLocalPreview()){setData({...MOCK_DATA,config:normalizedConfig});setLastUpdated(new Date());return;}
       const {invoke}=await import('@forge/bridge');
       const result=await invoke('getBurndownData',{config:normalizedConfig});
       if(!result || !Array.isArray(result.series)) throw new Error('Jira returned an invalid burndown response.');
-      setData(result);
+      setData(result);setLastUpdated(new Date());
     } catch(err){setError(err.message||String(err));} finally{setLoading(false);}
   }
   useEffect(()=>{ if(isLocalPreview())return; import('@forge/bridge').then(({view})=>view.getContext()).then((context)=>{const saved=context?.extension?.gadgetConfiguration||{};const next={...DEFAULT_CONFIG,...saved,jql:decodeJql(saved.jql||DEFAULT_CONFIG.jql)};setConfig(next);loadData(next);}).catch(()=>loadData(DEFAULT_CONFIG)); },[]);
   const metrics=data.metrics||MOCK_DATA.metrics, legend=useMemo(()=>[['Completed work',metrics.completedWork,'completed'],['Completed this interval',metrics.activeInterval,'active'],['Remaining work',metrics.remainingWork,'remaining'],['Total work',metrics.totalWork,'total']], [metrics]);
+  const kpis = [['Completed', `${metrics.completedPercent}%`, ''], ['Remaining', metrics.remainingWork, 'Work open'], ['This interval', metrics.activeInterval, 'Completed recently'], ['Total work', metrics.totalWork, 'Current scope'], ['Scope change', metrics.scopeChange, `${metrics.scopeChange >= 0 ? 'Added' : 'Removed'} net work`]];
   const assignees = data.assignees || ['Joe Alpha', 'Unassigned'];
-  const groupLabels = (data.labels || []).filter((label) => label === PEOPLE_GROUP_LABEL);
+  const teamLabel = config.targetLabel || PEOPLE_GROUP_LABEL;
+  const groupLabels = (data.labels || []).filter((label) => label === teamLabel);
   const selectedAssignees = Array.isArray(config.assignees) && config.assignees.length
     ? config.assignees
     : config.assignee && config.assignee !== 'all' ? [config.assignee] : [];
@@ -300,10 +279,10 @@ function View() {
       ? `Burndown Chart For ${selectedAssignees[0].replace(/^label:/, '')}`
       : `Burndown Chart For ${selectedAssignees.length} People`;
   if(error) return <main className="page errorState"><h2>Could not load burndown data</h2><p>{error}</p><button onClick={()=>loadData()}>Retry</button></main>;
-  return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown</span></div><div className="headerActions"><PeopleFilter assignees={assignees} labels={groupLabels} selectedAssignees={selectedAssignees} displayMode={config.peopleDisplay} onChange={(nextAssignees)=>loadData({...config,assignee:'all',assignees:nextAssignees})} onDisplayModeChange={(peopleDisplay)=>setConfig({...config,peopleDisplay})}/><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
+  return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown{lastUpdated && ` · Last refreshed ${lastUpdated.toLocaleString()}`}</span></div><div className="headerActions"><PeopleFilter assignees={assignees} labels={groupLabels} selectedAssignees={selectedAssignees} displayMode={config.peopleDisplay} teamLabel={teamLabel} onChange={(nextAssignees)=>loadData({...config,assignee:'all',assignees:nextAssignees})} onDisplayModeChange={(peopleDisplay)=>setConfig({...config,peopleDisplay})}/><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button></div></header>
     <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><RangeMenu config={config} openMenu={openMenu} setOpenMenu={setOpenMenu} onApply={loadData}/><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Choose a calendar-month horizon. Lines that complete later stop at the edge of that window.</p><label>Forecast months<input type="number" min="1" max="24" value={config.forecastMonths} onChange={(e)=>setConfig({...config,forecastMonths:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
-    <div className="metricGrid"><div className="metricCard"><span>Completed</span><b>{metrics.completedPercent}%</b></div><div className="metricCard scopeCard" title="Scope change is the net change in total work from the first interval to the latest interval. Positive means work was added; negative means work was removed."><span>Scope change <i className="infoIcon" aria-label="Scope change is the net change in total work from the first interval to the latest interval">?</i></span><b>{metrics.scopeChange}<small> net work change&nbsp; · &nbsp;{Math.round(metrics.scopeChange/Math.max(1,(data.series||[]).length-1))} avg/interval</small></b></div></div>
+    <div className="metricGrid">{kpis.map(([label,value,helper])=><div className={`metricCard ${label==='Scope change'?'scopeCard':''} ${label==='Scope change' ? (metrics.scopeChange>0?'scopeAdded':metrics.scopeChange<0?'scopeRemoved':'') : ''}`} key={label} title={label==='Scope change'?'Scope change is the net change in total work from the first interval to the latest interval. Positive means work was added; negative means work was removed.':undefined}><span>{label}{label==='Scope change'&&<i className="infoIcon" aria-label="Scope change is the net change in total work from the first interval to the latest interval">?</i>}</span><b>{value}</b>{helper&&<small>{helper}</small>}</div>)}</div>
     <div className="chartHeader"><div><b>Burndown chart</b>{config.peopleDisplay === 'separate' && personSeries.length > 1 && <div className="personLegend">{personSeries.map((person,index)=><span key={person.assignee}><i style={{background:['#0c66e4','#bf63f3','#e56910','#22a06b','#f15b50','#6e5dc6'][index%6]}}/>{person.assignee}</span>)}<span className="personMetricKey"><i className="remainingSample"/>Solid = remaining</span><span className="personMetricKey"><i className="completedSample"/>Dotted = completed</span></div>}</div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast} personSeries={personSeries}/>}
-    {config.showForecast!==false&&<ForecastPanel rows={(data.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)} personSeries={config.peopleDisplay === 'separate' ? personSeries.map((person)=>({...person,forecast:(person.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)})) : []}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown||{total:0,groups:[]}}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;
+    {config.showForecast!==false&&<ForecastPanel config={config} rows={(data.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)} personSeries={config.peopleDisplay === 'separate' ? personSeries.map((person)=>({...person,forecast:(person.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)})) : []}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown||{total:0,groups:[]}}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;
 }
 export default View;
