@@ -242,11 +242,16 @@ function Settings({ config, setConfig, onApply }) {
       : [...selectedCompletionTargets, target];
     update('completionToValues', nextTargets.length ? nextTargets : [target]);
   };
+  const targetDescriptions = {
+    Approved: 'Final business acceptance is complete and ready to burn down.',
+    'Ready for Review (Demoed)': 'Demo completed and the item is waiting for final acceptance.'
+  };
+  const applySettings = () => onApply({...config, completionToValues: selectedCompletionTargets});
   return <aside className="settings"><div className="selectedChartType"><span className="chartTypeIcon">↘</span><span><b>Burndown chart</b><small>Track completed and remaining work over time</small></span></div>
     <SettingsSection title="Data source"><label>Custom JQL<textarea value={config.jql} onChange={(e)=>update('jql',e.target.value)}/></label></SettingsSection>
     <SettingsSection title="People defaults"><label>Team label<input value={config.targetLabel || PEOPLE_GROUP_LABEL} onChange={(e)=>update('targetLabel',e.target.value)}/></label><label>Default people display<select value={config.peopleDisplay || 'combined'} onChange={(e)=>update('peopleDisplay',e.target.value)}><option value="combined">Combined</option><option value="separate">Individuals</option></select></label></SettingsSection>
-    <SettingsSection title="Completion targets"><p className="popoverHelp">Count work as burned down when Business Tested &amp; Approved is changed to any selected value.</p>{COMPLETION_STATUS_OPTIONS.map((target)=><label className="checkOption" key={target}><input type="checkbox" checked={selectedCompletionTargets.includes(target)} onChange={()=>toggleCompletionTarget(target)}/>{target}</label>)}</SettingsSection>
-    <button type="button" className="primaryButton" onClick={()=>onApply({...config, completionToValues: selectedCompletionTargets})}>Apply settings</button></aside>;
+    <SettingsSection title="Completion targets"><div className="completionIntro"><span className="completionIcon" aria-hidden="true">✓</span><span><b>Define done for this chart</b><small>Choose which Business Tested &amp; Approved values count as completed work.</small></span></div><div className="completionTargetGrid">{COMPLETION_STATUS_OPTIONS.map((target)=><label className="completionTargetCard" key={target}><input type="checkbox" checked={selectedCompletionTargets.includes(target)} onChange={()=>toggleCompletionTarget(target)}/><span className="completionCardBody"><span className="completionCardTitle"><b>{target}</b>{target === 'Ready for Review (Demoed)' && <em>Recommended</em>}</span><small>{targetDescriptions[target]}</small></span></label>)}</div><div className="completionSummary"><span>{selectedCompletionTargets.length} selected</span><strong>{selectedCompletionTargets.join(' + ')}</strong></div></SettingsSection>
+    <div className="settingsApplyBar"><button type="button" className="primaryButton" onClick={applySettings}>Apply settings</button><small>Updates the chart using your selected completion targets.</small></div></aside>;
 }
 function View() {
   const [data,setData]=useState(MOCK_DATA), [config,setConfig]=useState(DEFAULT_CONFIG), [loading,setLoading]=useState(!isLocalPreview()), [error,setError]=useState(''), [openMenu,setOpenMenu]=useState(''), [settings,setSettings]=useState(false), [lastUpdated,setLastUpdated]=useState(isLocalPreview()?new Date():null);
