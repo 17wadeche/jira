@@ -2,6 +2,23 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { COMPLETION_STATUS_OPTIONS, DEFAULT_CONFIG, MOCK_DATA, PEOPLE_GROUP_LABEL } from './config';
 import './App.css';
 const isLocalPreview = () => ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const DASHBOARD_CONFIG_STORAGE_KEY = 'jira-dashboard:last-view-config';
+function readSavedDashboardConfig() {
+  try {
+    const value = window.localStorage.getItem(DASHBOARD_CONFIG_STORAGE_KEY);
+    return value ? JSON.parse(value) : {};
+  } catch (error) {
+    console.warn('Could not read saved dashboard configuration.', error);
+    return {};
+  }
+}
+function saveDashboardConfig(config) {
+  try {
+    window.localStorage.setItem(DASHBOARD_CONFIG_STORAGE_KEY, JSON.stringify(config));
+  } catch (error) {
+    console.warn('Could not save dashboard configuration.', error);
+  }
+}
 const displayValue = (value) => String(value || '').replace(/(^|[-_])\w/g, (match) => match.replace(/[-_]/, ' ').toUpperCase());
 const decodeJql = (value) => String(value || '').replace(/&(?:amp|#38|#x26);/gi, '&');
 function forecastIntervalLimit(config) {
@@ -254,7 +271,8 @@ function Settings({ config, setConfig, onApply }) {
     <div className="settingsApplyBar"><button type="button" className="primaryButton" onClick={applySettings}>Apply settings</button><small>Updates the chart using your selected completion targets.</small></div></aside>;
 }
 function View() {
-  const [data,setData]=useState(MOCK_DATA), [config,setConfig]=useState(DEFAULT_CONFIG), [loading,setLoading]=useState(!isLocalPreview()), [error,setError]=useState(''), [openMenu,setOpenMenu]=useState(''), [settings,setSettings]=useState(false), [lastUpdated,setLastUpdated]=useState(isLocalPreview()?new Date():null);
+  const initialConfig = useMemo(() => ({ ...DEFAULT_CONFIG, ...readSavedDashboardConfig() }), []);
+  const [data,setData]=useState(MOCK_DATA), [config,setConfig]=useState(initialConfig), [loading,setLoading]=useState(!isLocalPreview()), [error,setError]=useState(''), [openMenu,setOpenMenu]=useState(''), [settings,setSettings]=useState(false), [lastUpdated,setLastUpdated]=useState(isLocalPreview()?new Date():null), [preferencesLoaded,setPreferencesLoaded]=useState(isLocalPreview());
   async function loadData(nextConfig=config) {
     const normalizedConfig = {...nextConfig, jql: decodeJql(nextConfig.jql)};
     setConfig(normalizedConfig);
@@ -268,7 +286,8 @@ function View() {
       setData(result);setLastUpdated(new Date());
     } catch(err){setError(err.message||String(err));} finally{setLoading(false);}
   }
-  useEffect(()=>{ if(isLocalPreview())return; import('@forge/bridge').then(({view})=>view.getContext()).then((context)=>{const saved=context?.extension?.gadgetConfiguration||{};const next={...DEFAULT_CONFIG,...saved,jql:decodeJql(saved.jql||DEFAULT_CONFIG.jql)};setConfig(next);loadData(next);}).catch(()=>loadData(DEFAULT_CONFIG)); },[]);
+  useEffect(()=>{ if(isLocalPreview())return; import('@forge/bridge').then(({view})=>view.getContext()).then((context)=>{const saved=context?.extension?.gadgetConfiguration||{};const locallySaved=readSavedDashboardConfig();const next={...DEFAULT_CONFIG,...saved,...locallySaved,jql:decodeJql(locallySaved.jql||saved.jql||DEFAULT_CONFIG.jql)};setPreferencesLoaded(true);setConfig(next);loadData(next);}).catch(()=>{const next={...DEFAULT_CONFIG,...readSavedDashboardConfig()};setPreferencesLoaded(true);loadData(next);}); },[]);
+  useEffect(()=>{ if(preferencesLoaded) saveDashboardConfig(config); },[config, preferencesLoaded]);6
   const metrics=data.metrics||MOCK_DATA.metrics, legend=useMemo(()=>[['Completed work',metrics.completedWork,'completed'],['Completed this interval',metrics.activeInterval,'active'],['Remaining work',metrics.remainingWork,'remaining'],['Total work',metrics.totalWork,'total']], [metrics]);
   const kpis = [['Completed', `${metrics.completedPercent}%`, ''], ['Remaining', metrics.remainingWork, 'Work open'], ['This interval', metrics.activeInterval, 'Completed recently'], ['Total work', metrics.totalWork]];
   const healthTone = metrics.completedPercent >= 75 ? 'success' : metrics.completedPercent >= 45 ? 'warning' : 'critical';

@@ -6,7 +6,7 @@ export const DEFAULT_CONFIG = {
   rangeMode: 'since',
   rangeCount: 6,
   rangeUnit: 'biweeks',
-  sinceDate: '2026-06-01',
+  sinceDate: '2026-06-14',
   fixedFrom: '',
   fixedTo: '',
   groupBy: 'weekly',
