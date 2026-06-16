@@ -4,10 +4,23 @@ import './App.css';
 const isLocalPreview = () => ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const DASHBOARD_CONFIG_STORAGE_PREFIX = 'jira-dashboard:last-view-config';
 function dashboardConfigStorageKey(context) {
-  const contextKey = [context?.cloudId, context?.localId || context?.extension?.localId || context?.extension?.gadgetId || context?.extension?.id, context?.moduleKey || context?.extension?.moduleKey]
+  const extension = context?.extension || {};
+  const dashboard = extension.dashboard || context?.dashboard || {};
+  const location = typeof window !== 'undefined'
+    ? `${window.location.pathname}${window.location.search}`
+    : '';
+  const contextKey = [
+    context?.cloudId,
+    dashboard.id || dashboard.dashboardId || extension.dashboardId || context?.dashboardId,
+    extension.gadgetId,
+    extension.localId || context?.localId,
+    extension.id,
+    context?.moduleKey || extension.moduleKey,
+    location
+  ]
     .filter(Boolean)
     .join(':');
-  return `${DASHBOARD_CONFIG_STORAGE_PREFIX}:${contextKey || window.location.pathname}`;
+  return `${DASHBOARD_CONFIG_STORAGE_PREFIX}:${contextKey || 'default'}`;
 }
 function readSavedDashboardConfig(storageKey) {
   try {
