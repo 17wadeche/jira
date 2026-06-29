@@ -105,8 +105,9 @@ function displayFieldValue(value) {
   if (value && typeof value === 'object') return value.value || value.name || value.displayName || '';
   return String(value || '');
 }
-function buildSeries(issues, config) {
+function buildSeries(issues, config, options = {}) {
   const groupDays = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 91 }[config.groupBy] || 7;
+  const maxPointCount = Number(options.maxPointCount) || 18;
   const rangeDays = { days: 1, weeks: 7, biweeks: 14, months: 30, quarters: 91 }[config.rangeUnit] || 14;
   const today = new Date();
   const parseDate = (value) => value ? new Date(`${value}T00:00:00`) : null;
@@ -115,8 +116,8 @@ function buildSeries(issues, config) {
   const usesSelectedDates = ['since', 'fixed'].includes(config.rangeMode) && selectedStart && selectedEnd && selectedStart <= selectedEnd;
   const selectedDayCount = usesSelectedDates ? Math.floor((selectedEnd - selectedStart) / 86400000) + 1 : 0;
   const pointCount = usesSelectedDates
-    ? Math.max(1, Math.min(18, Math.ceil(selectedDayCount / groupDays)))
-    : Math.max(4, Math.min(18, Math.ceil((Number(config.rangeCount) * rangeDays) / groupDays)));
+    ? Math.max(1, Math.min(maxPointCount, Math.ceil(selectedDayCount / groupDays)))
+    : Math.max(4, Math.min(maxPointCount, Math.ceil((Number(config.rangeCount) * rangeDays) / groupDays)));
   const chartStart = usesSelectedDates ? selectedStart : addDays(startOfWeek(today), -(pointCount - 1) * groupDays);
   const series = Array.from({ length: pointCount }, (_, index) => {
     const start = addDays(chartStart, index * groupDays);
@@ -127,6 +128,9 @@ function buildSeries(issues, config) {
     const completed = issues.filter((issue) => issue.completedDate && new Date(issue.completedDate) <= end).length;
     return {
       label: `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+      groupDays,
       total,
       completed,
       remaining: Math.max(total - completed, 0)
@@ -146,20 +150,27 @@ function buildSeries(issues, config) {
     }
   };
 }
+function dailyVelocities(series) {
+  return series.slice(1).map((point, index) => Math.max(0, point.completed - series[index].completed)).filter(Boolean);
+}
 function buildForecast(series) {
   const current = series[series.length - 1] || { remaining: 0 };
-  const velocities = series.slice(1).map((point, index) => Math.max(0, point.completed - series[index].completed)).filter(Boolean);
+  const velocities = dailyVelocities(series);
   const average = velocities.length ? Math.max(1, Math.round(velocities.reduce((sum, value) => sum + value, 0) / velocities.length)) : 1;
   const max = Math.max(average, ...velocities, 1);
   const min = Math.max(1, Math.min(...(velocities.length ? velocities : [average])));
-  const row = (label, key, velocity) => ({
-    label,
-    key,
-    type: 'Auto',
-    velocity,
-    intervals: Math.ceil(current.remaining / velocity),
-    completeDate: addDays(new Date(), Math.ceil(current.remaining / velocity) * 7).toLocaleDateString('en-US')
-  });
+  const row = (label, key, velocity) => {
+    const intervals = Math.ceil(current.remaining / velocity);
+    return {
+      label,
+      key,
+      type: 'Auto',
+      velocity,
+      intervals,
+      intervalUnit: 'days',
+      completeDate: addDays(new Date(), intervals).toLocaleDateString('en-US')
+    };
+  };
   return [row('Max', 'max', max), row('Average', 'average', average), row('Min', 'min', min)];
 }
 function buildBreakdown(issues) {
@@ -218,6 +229,7 @@ resolver.define('getBurndownData', async ({ payload }) => {
     ? issues.filter((issue) => selectedAssignees.some((selector) => matchesSelector(issue, selector)))
     : issues;
   const chart = buildSeries(filteredIssues, config);
+  const forecastSeries = buildSeries(filteredIssues, { ...config, groupBy: 'daily' }, { maxPointCount: 366 }).series;
   const selectedLabelGroups = selectedAssignees.filter((selector) => selector.startsWith('label:'));
   const groupMemberAssignees = selectedLabelGroups.flatMap((selector) => (
     [...new Set(issues.filter((issue) => matchesSelector(issue, selector)).map((issue) => issue.assignee))]
@@ -227,8 +239,10 @@ resolver.define('getBurndownData', async ({ payload }) => {
   const personSeriesSelectors = [...new Set([...groupMemberAssignees, ...individualSelectors])];
   const personSeries = personSeriesSelectors.length > 1
     ? personSeriesSelectors.map((assignee) => {
-      const series = buildSeries(issues.filter((issue) => matchesSelector(issue, assignee)), config).series;
-      return { assignee: assignee.replace(/^label:/, ''), series, forecast: buildForecast(series) };
+      const assigneeIssues = issues.filter((issue) => matchesSelector(issue, assignee));
+      const series = buildSeries(assigneeIssues, config).series;
+      const forecastSeries = buildSeries(assigneeIssues, { ...config, groupBy: 'daily' }, { maxPointCount: 366 }).series;
+      return { assignee: assignee.replace(/^label:/, ''), series, forecast: buildForecast(forecastSeries) };
     })
     : [];
   const remainingIssues = filteredIssues.filter((issue) => !issue.completedDate).map((issue) => ({ ...issue, url: `/browse/${issue.key}` }));
@@ -244,7 +258,7 @@ resolver.define('getBurndownData', async ({ payload }) => {
     labels,
     personSeries,
     ...chart,
-    forecast: buildForecast(chart.series),
+    forecast: buildForecast(forecastSeries),
     breakdown: buildBreakdown(remainingIssues),
     remainingIssues
   };
