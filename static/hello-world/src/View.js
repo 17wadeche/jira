@@ -54,20 +54,21 @@ function forecastIntervalLimit(config) {
   const daysPerInterval = groupBy === 'daily' ? 1 : groupBy === 'biweekly' ? 14 : 7;
   return Math.ceil(days / daysPerInterval);
 }
-function makeForecast(series, scenario, intervalLimit) {
+function groupDays(config) {
+  return { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 91 }[config.groupBy || 'weekly'] || 7;
+}
+function makeForecast(series, scenario, intervalLimit, config) {
   const points = [];
   const startingRemaining = Number(series[series.length - 1]?.remaining) || 0;
-  const velocity = Math.max(0, Number(scenario?.velocity ?? scenario) || 0);
-  const suppliedIntervals = Math.max(0, Number(scenario?.intervals) || 0);
-  const naturalIntervals = velocity > 0 ? Math.ceil(startingRemaining / velocity) : 0;
-  const completionIntervals = suppliedIntervals || naturalIntervals;
+  const dailyVelocity = Math.max(0, Number(scenario?.velocity ?? scenario) || 0);
+  const intervalVelocity = dailyVelocity * groupDays(config);
+  const completionIntervals = intervalVelocity > 0 ? Math.ceil(startingRemaining / intervalVelocity) : 0;
   const intervalCount = Math.min(104, intervalLimit, completionIntervals || intervalLimit);
   for (let interval = 1; interval <= intervalCount; interval += 1) {
-    const completesHere = completionIntervals > 0 && interval === completionIntervals;
-    const remaining = completionIntervals > 0
-      ? Math.max(0, startingRemaining * (1 - interval / completionIntervals))
+    const remaining = intervalVelocity > 0
+      ? Math.max(0, startingRemaining - (intervalVelocity * interval))
       : startingRemaining;
-    points.push({ label:`Forecast ${interval}`, remaining, complete: completesHere });
+    points.push({ label:`Forecast ${interval}`, remaining, complete: intervalVelocity > 0 && remaining === 0 });
   }
   return points;
 }
@@ -121,7 +122,7 @@ function Chart({ series, config, forecast, personSeries = [] }) {
       {visible('remaining') && <path d={path(person.series, 'remaining')} className="line personLine personRemainingLine" style={{stroke:'currentColor'}}/>}
       {visible('completed') && <path d={path(person.series, 'completed')} className="line personLine personCompletedLine" style={{stroke:'currentColor'}}/>}
       {config.showForecast !== false && personScenarios(person).map((scenario) => {
-        const points = makeForecast(person.series, scenario, forecastLimit);
+        const points = makeForecast(person.series, scenario, forecastLimit, config);
         const preferredLabelIndex = { max:0, average:1, min:2 }[scenario.key] || 0;
         const labelIndex = Math.min(preferredLabelIndex, Math.max(points.length - 1, 0));
         const labelPoint = points[labelIndex];
@@ -133,7 +134,7 @@ function Chart({ series, config, forecast, personSeries = [] }) {
         </g>;
       })}
     </g>)}
-    {!separatePeople && config.showForecast !== false && activeScenarios.map((scenario, scenarioIndex) => { const points=makeForecast(series,scenario,forecastLimit); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}{completionLabel(scenario, points, series.length, scenarioIndex)}</g>; })}
+    {!separatePeople && config.showForecast !== false && activeScenarios.map((scenario, scenarioIndex) => { const points=makeForecast(series,scenario,forecastLimit,config); const labelIndex=Math.min(1,points.length-1); const labelPoint=points[labelIndex]; return <g key={scenario.key}><path d={`M ${x(series.length-1)} ${y(last.remaining)} ${path(points,'remaining',series.length).replace('M','L')}`} className={`line scenarioLine ${scenario.key}Line`}/>{labelPoint && <g transform={`translate(${x(series.length+labelIndex)-18} ${y(labelPoint.remaining)-10})`}><rect width={scenario.key==='average'?58:34} height="20" rx="10" className={`scenarioLabelBackground ${scenario.key}`}/><text x="7" y="14" className={`scenarioText ${scenario.key}`}>{displayValue(scenario.key)}</text></g>}{completionLabel(scenario, points, series.length, scenarioIndex)}</g>; })}
     {!separatePeople && series.map((point,index) => <g key={`${point.label}-dots`}>
       {['total','completed','remaining'].map((field) => visible(field) && <g key={field}><circle cx={x(index)} cy={y(point[field])} r="4" className={`dot ${field}Dot`}/>{config.showValueLabels !== false && <text x={x(index)+5} y={y(point[field])-7} className={`${field}Value valueLabel`}>{point[field]}</text>}</g>)}
     </g>)}
@@ -206,10 +207,10 @@ function CollapsiblePanel({ title, children, actions }) {
   </section>;
 }
 function ForecastPanel({ rows, personSeries = [], config }) {
-  const summary = `Based on ${config.groupBy || 'weekly'} grouping, ${config.forecastMonths || 1}-month horizon, and ${config.capacityCoefficient || 100}% capacity allocation.`;
+  const summary = `Based on daily forecast velocity, ${config.groupBy || 'weekly'} chart grouping, ${config.forecastMonths || 1}-month horizon, and ${config.capacityCoefficient || 100}% capacity allocation.`;
   const individualRows = personSeries.flatMap((person) => (person.forecast || []).map((row) => ({ ...row, assignee: person.assignee })));
   const displayedRows = individualRows.length ? individualRows : rows;
-  return <CollapsiblePanel title="Forecast"><p className="forecastSummary">{summary}</p><table className="dataTable"><thead><tr>{individualRows.length > 0 && <th>Person</th>}<th>Label</th><th>Type</th><th>Velocity</th><th>Complete date</th><th>Intervals</th></tr></thead><tbody>{displayedRows.map((row)=><tr key={`${row.assignee || 'team'}-${row.key}`}>{individualRows.length > 0 && <td>{row.assignee}</td>}<td><i className={`scenarioBox ${row.key}`}/> {row.label}</td><td>{row.type}</td><td>{row.velocity}</td><td>{row.completeDate}</td><td>{row.intervals} weeks</td></tr>)}</tbody></table></CollapsiblePanel>;
+  return <CollapsiblePanel title="Forecast"><p className="forecastSummary">{summary}</p><table className="dataTable"><thead><tr>{individualRows.length > 0 && <th>Person</th>}<th>Label</th><th>Type</th><th>Velocity / day</th><th>Complete date</th><th>Intervals</th></tr></thead><tbody>{displayedRows.map((row)=><tr key={`${row.assignee || 'team'}-${row.key}`}>{individualRows.length > 0 && <td>{row.assignee}</td>}<td><i className={`scenarioBox ${row.key}`}/> {row.label}</td><td>{row.type}</td><td>{row.velocity}</td><td>{row.completeDate}</td><td>{row.intervals} {row.intervalUnit || 'weeks'}</td></tr>)}</tbody></table></CollapsiblePanel>;
 }
 function BreakdownPanel({ breakdown }) {
   const groups = breakdown?.groups || [];
