@@ -16,6 +16,7 @@ export const DEFAULT_CONFIG = {
   showValueLabels: true,
   showForecast: true,
   forecastMonths: 1,
+  forecastDayMode: 'all',
   capacityCoefficient: 100,
   scenarioMax: true,
   scenarioAverage: true,
@@ -36,9 +37,9 @@ export const MOCK_DATA = {
     ['Mar 28 - Apr 3', 121, 64, 57], ['Apr 4 - Apr 10', 168, 64, 104], ['Apr 11 - Apr 17', 168, 92, 76], ['Apr 18 - Apr 24', 168, 92, 47]
   ].map(([label, total, completed, remaining]) => ({ label, total, completed, remaining })),
   forecast: [
-    { label: 'Max', key: 'max', type: 'Auto', velocity: 28, completeDate: '05/08/2024', intervals: 2 },
-    { label: 'Average', key: 'average', type: 'Auto', velocity: 8, completeDate: '06/05/2024', intervals: 6 },
-    { label: 'Min', key: 'min', type: 'Auto', velocity: 12, completeDate: '05/22/2024', intervals: 4 }
+    { label: 'Max', key: 'max', type: 'Auto', velocity: 28, completeDate: '05/08/2024', intervals: 2, intervalUnit: 'days' },
+    { label: 'Average', key: 'average', type: 'Auto', velocity: 8, completeDate: '06/05/2024', intervals: 6, intervalUnit: 'days' },
+    { label: 'Min', key: 'min', type: 'Auto', velocity: 12, completeDate: '05/22/2024', intervals: 4, intervalUnit: 'days' }
   ],
   breakdown: { total: 47, groups: [
     { label: 'TWD Complaints', total: 22, percent: 47, children: [{ label: 'Bug', total: 8, percent: 36 }, { label: 'Story', total: 9, percent: 41 }, { label: 'Task', total: 5, percent: 23 }] },
