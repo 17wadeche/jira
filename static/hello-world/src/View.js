@@ -57,18 +57,36 @@ function forecastIntervalLimit(config) {
 function groupDays(config) {
   return { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 91 }[config.groupBy || 'weekly'] || 7;
 }
+function isWorkingDay(date) {
+  const day = date.getDay();
+  return day !== 0 && day !== 6;
+}
+function forecastUsesWorkingDays(config) {
+  return config.forecastDayMode === 'working';
+}
+function forecastDaysInInterval(series, interval, config) {
+  const days = groupDays(config);
+  if (!forecastUsesWorkingDays(config)) return days;
+  const start = new Date(series[series.length - 1]?.endDate || Date.now());
+  let count = 0;
+  for (let dayOffset = ((interval - 1) * days) + 1; dayOffset <= interval * days; dayOffset += 1) {
+    const date = new Date(start);
+    date.setDate(date.getDate() + dayOffset);
+    if (isWorkingDay(date)) count += 1;
+  }
+  return count;
+}
 function makeForecast(series, scenario, intervalLimit, config) {
   const points = [];
   const startingRemaining = Number(series[series.length - 1]?.remaining) || 0;
   const dailyVelocity = Math.max(0, Number(scenario?.velocity ?? scenario) || 0);
-  const intervalVelocity = dailyVelocity * groupDays(config);
-  const completionIntervals = intervalVelocity > 0 ? Math.ceil(startingRemaining / intervalVelocity) : 0;
-  const intervalCount = Math.min(104, intervalLimit, completionIntervals || intervalLimit);
+  let remaining = startingRemaining;
+  const intervalCount = Math.min(104, intervalLimit);
   for (let interval = 1; interval <= intervalCount; interval += 1) {
-    const remaining = intervalVelocity > 0
-      ? Math.max(0, startingRemaining - (intervalVelocity * interval))
-      : startingRemaining;
-    points.push({ label:`Forecast ${interval}`, remaining, complete: intervalVelocity > 0 && remaining === 0 });
+    const intervalVelocity = dailyVelocity * forecastDaysInInterval(series, interval, config);
+    remaining = intervalVelocity > 0 ? Math.max(0, remaining - intervalVelocity) : remaining;
+    points.push({ label:`Forecast ${interval}`, remaining, complete: dailyVelocity > 0 && remaining === 0 });
+    if (remaining === 0) break;
   }
   return points;
 }
@@ -207,7 +225,8 @@ function CollapsiblePanel({ title, children, actions }) {
   </section>;
 }
 function ForecastPanel({ rows, personSeries = [], config }) {
-  const summary = `Based on daily forecast velocity, ${config.groupBy || 'weekly'} chart grouping, ${config.forecastMonths || 1}-month horizon, and ${config.capacityCoefficient || 100}% capacity allocation.`;
+  const dayModeLabel = config.forecastDayMode === 'working' ? 'working-day' : 'all-day';
+  const summary = `Based on ${dayModeLabel} daily forecast velocity, ${config.groupBy || 'weekly'} chart grouping, ${config.forecastMonths || 1}-month horizon, and ${config.capacityCoefficient || 100}% capacity allocation.`;
   const individualRows = personSeries.flatMap((person) => (person.forecast || []).map((row) => ({ ...row, assignee: person.assignee })));
   const displayedRows = individualRows.length ? individualRows : rows;
   return <CollapsiblePanel title="Forecast"><p className="forecastSummary">{summary}</p><table className="dataTable"><thead><tr>{individualRows.length > 0 && <th>Person</th>}<th>Label</th><th>Type</th><th>Velocity / day</th><th>Complete date</th><th>Intervals</th></tr></thead><tbody>{displayedRows.map((row)=><tr key={`${row.assignee || 'team'}-${row.key}`}>{individualRows.length > 0 && <td>{row.assignee}</td>}<td><i className={`scenarioBox ${row.key}`}/> {row.label}</td><td>{row.type}</td><td>{row.velocity}</td><td>{row.completeDate}</td><td>{row.intervals} {row.intervalUnit || 'weeks'}</td></tr>)}</tbody></table></CollapsiblePanel>;
@@ -333,7 +352,7 @@ function View() {
       : `Burndown Chart For ${selectedAssignees.length} People`;
   if(error) return <main className="page errorState"><h2>Could not load burndown data</h2><p>{error}</p><button onClick={()=>loadData()}>Retry</button></main>;
   return <main className="page"><header className="topBar"><div><h1>{chartTitle}</h1><span className="subtitle">TWD complaint handling burndown{lastUpdated && ` · Last refreshed ${lastUpdated.toLocaleString()}`}</span></div><div className="headerActions"><PeopleFilter assignees={assignees} labels={groupLabels} selectedAssignees={selectedAssignees} displayMode={config.peopleDisplay} teamLabel={teamLabel} onChange={(nextAssignees)=>loadData({...config,assignee:'all',assignees:nextAssignees})} onDisplayModeChange={(peopleDisplay)=>setConfig({...config,peopleDisplay})}/><button className="secondaryButton" onClick={saveCurrentView}>Save view</button><button className="secondaryButton" onClick={()=>setSettings(!settings)}>⚙ Settings</button><button className="primaryButton" onClick={()=>loadData()}>↻ Refresh</button>{saveStatus&&<span className="saveStatus" role="status">{saveStatus}</span>}</div></header>
-    <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><RangeMenu config={config} openMenu={openMenu} setOpenMenu={setOpenMenu} onApply={loadData}/><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Choose a calendar-month horizon. Lines that complete later stop at the edge of that window.</p><label>Forecast months<input type="number" min="1" max="24" value={config.forecastMonths} onChange={(e)=>setConfig({...config,forecastMonths:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
+    <div className={`workspace ${settings?'withSettings':''}`}><div className="content">{settings&&<div className="toolbar settingsToolbar"><div className="rangeControls"><RangeMenu config={config} openMenu={openMenu} setOpenMenu={setOpenMenu} onApply={loadData}/><Menu name={`Group: ${config.groupBy}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Daily','Weekly','Bi-weekly','Monthly','Quarterly'].map((item)=><button key={item} onClick={()=>{setConfig({...config,groupBy:item.toLowerCase().replace('-','')});setOpenMenu('');}}>{item}</button>)}</Menu></div><div className="toolMenus"><Menu name="Metrics" openMenu={openMenu} setOpenMenu={setOpenMenu}>{['Completed','Remaining','Total'].map((item)=><label className="checkOption" key={item}><input type="checkbox" checked={config[`show${item}`]!==false} onChange={(e)=>setConfig({...config,[`show${item}`]:e.target.checked})}/>{item} work</label>)}</Menu><Menu name="Forecast" openMenu={openMenu} setOpenMenu={setOpenMenu}><p className="popoverHelp">Choose a calendar-month horizon. Lines that complete later stop at the edge of that window.</p><label>Forecast days<select value={config.forecastDayMode || 'all'} onChange={(e)=>setConfig({...config,forecastDayMode:e.target.value})}><option value="all">All days</option><option value="working">Working days</option></select></label><label>Forecast months<input type="number" min="1" max="24" value={config.forecastMonths} onChange={(e)=>setConfig({...config,forecastMonths:e.target.value})}/></label><label>Capacity allocation coefficient (%)<input type="number" min="1" value={config.capacityCoefficient} onChange={(e)=>setConfig({...config,capacityCoefficient:e.target.value})}/></label></Menu><Menu name="Scenarios" openMenu={openMenu} setOpenMenu={setOpenMenu}>{MOCK_DATA.forecast.map((row)=><label className="checkOption" key={row.key}><input type="checkbox" checked={config[`scenario${displayValue(row.key).replace(/\s/g, '')}`] !== false} onChange={(e)=>setConfig({...config,[`scenario${displayValue(row.key).replace(/\s/g, '')}`]:e.target.checked})}/><i className={`scenarioBox ${row.key}`}/>{row.label}</label>)}</Menu></div></div>}
     <section className="insightHero" aria-label="Burndown summary"><div className="progressOrb" style={{'--progress': `${Math.min(100, Math.max(0, metrics.completedPercent || 0))}%`}}><span>{metrics.completedPercent}%</span><small>complete</small></div><div><h2>{metrics.remainingWork} items remain across {metrics.totalWork} total work items</h2></div></section>
     <div className="chartHeader"><div><b>Burndown chart</b>{config.peopleDisplay === 'separate' && personSeries.length > 1 && <div className="personLegend">{personSeries.map((person,index)=><span key={person.assignee}><i style={{background:['#0c66e4','#bf63f3','#e56910','#22a06b','#f15b50','#6e5dc6'][index%6]}}/>{person.assignee}</span>)}<span className="personMetricKey"><i className="remainingSample"/>Solid = remaining</span><span className="personMetricKey"><i className="completedSample"/>Dotted = completed</span></div>}</div><div className="legend">{legend.map(([label,value,type])=><span key={label} title={type==='active'?'Work completed during the latest reporting interval. Hover over a chart interval for its details.':undefined}><i className={`legendDot ${type}`}/> {label} <b>{value}</b></span>)}</div></div>{loading&&<div className="loadingBanner">Refreshing Jira data…</div>}{!loading&&data.issueCount===0?<div className="emptyData">No Jira issues matched the configured JQL.</div>:<Chart series={data.series||[]} config={config} forecast={data.forecast||MOCK_DATA.forecast} personSeries={personSeries}/>}
     {config.showForecast!==false&&<ForecastPanel config={config} rows={(data.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)} personSeries={config.peopleDisplay === 'separate' ? personSeries.map((person)=>({...person,forecast:(person.forecast||[]).filter((row)=>config[`scenario${displayValue(row.key).replace(/\s/g, '')}`]!==false)})) : []}/>} {config.showBreakdown!==false&&<BreakdownPanel breakdown={data.breakdown||{total:0,groups:[]}}/>} {config.showRemainingIssues!==false&&<IssuesPanel issues={data.remainingIssues||[]}/>}</div>{settings&&<Settings config={config} setConfig={setConfig} onApply={loadData}/>}</div></main>;

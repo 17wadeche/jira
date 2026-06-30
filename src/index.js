@@ -150,12 +150,39 @@ function buildSeries(issues, config, options = {}) {
     }
   };
 }
-function dailyVelocities(series) {
-  return series.slice(1).map((point, index) => Math.max(0, point.completed - series[index].completed)).filter(Boolean);
+function isWorkingDay(date) {
+  const day = date.getDay();
+  return day !== 0 && day !== 6;
 }
-function buildForecast(series) {
+function forecastUsesWorkingDays(config) {
+  return config.forecastDayMode === 'working';
+}
+function addForecastDays(date, days, config) {
+  const result = new Date(date);
+  let remaining = Math.max(0, days);
+  while (remaining > 0) {
+    result.setDate(result.getDate() + 1);
+    if (!forecastUsesWorkingDays(config) || isWorkingDay(result)) remaining -= 1;
+  }
+  return result;
+}
+function dailyVelocities(series, config) {
+  if (series.length < 2) return [];
+  const velocities = [];
+  let previousCompleted = Number(series[0].completed) || 0;
+  for (const point of series.slice(1)) {
+    const pointDate = new Date(point.endDate || point.startDate || Date.now());
+    if (forecastUsesWorkingDays(config) && !isWorkingDay(pointDate)) continue;
+    const completed = Number(point.completed) || 0;
+    const velocity = Math.max(0, completed - previousCompleted);
+    if (velocity) velocities.push(velocity);
+    previousCompleted = completed;
+  }
+  return velocities;
+}
+function buildForecast(series, config = {}) {
   const current = series[series.length - 1] || { remaining: 0 };
-  const velocities = dailyVelocities(series);
+  const velocities = dailyVelocities(series, config);
   const average = velocities.length ? Math.max(1, Math.round(velocities.reduce((sum, value) => sum + value, 0) / velocities.length)) : 1;
   const max = Math.max(average, ...velocities, 1);
   const min = Math.max(1, Math.min(...(velocities.length ? velocities : [average])));
@@ -167,8 +194,8 @@ function buildForecast(series) {
       type: 'Auto',
       velocity,
       intervals,
-      intervalUnit: 'days',
-      completeDate: addDays(new Date(), intervals).toLocaleDateString('en-US')
+      intervalUnit: forecastUsesWorkingDays(config) ? 'working days' : 'days',
+      completeDate: addForecastDays(new Date(), intervals, config).toLocaleDateString('en-US')
     };
   };
   return [row('Max', 'max', max), row('Average', 'average', average), row('Min', 'min', min)];
@@ -242,7 +269,7 @@ resolver.define('getBurndownData', async ({ payload }) => {
       const assigneeIssues = issues.filter((issue) => matchesSelector(issue, assignee));
       const series = buildSeries(assigneeIssues, config).series;
       const forecastSeries = buildSeries(assigneeIssues, { ...config, groupBy: 'daily' }, { maxPointCount: 366 }).series;
-      return { assignee: assignee.replace(/^label:/, ''), series, forecast: buildForecast(forecastSeries) };
+      return { assignee: assignee.replace(/^label:/, ''), series, forecast: buildForecast(forecastSeries, config) };
     })
     : [];
   const remainingIssues = filteredIssues.filter((issue) => !issue.completedDate).map((issue) => ({ ...issue, url: `/browse/${issue.key}` }));
@@ -258,7 +285,7 @@ resolver.define('getBurndownData', async ({ payload }) => {
     labels,
     personSeries,
     ...chart,
-    forecast: buildForecast(forecastSeries),
+    forecast: buildForecast(forecastSeries, config),
     breakdown: buildBreakdown(remainingIssues),
     remainingIssues
   };

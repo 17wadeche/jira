@@ -48,6 +48,7 @@ function Edit() {
       jql: decodeJql(config.jql),
       rangeCount: Number(config.rangeCount || 6),
       forecastMonths: Number(config.forecastMonths || 1),
+      forecastDayMode: config.forecastDayMode || 'all',
       capacityCoefficient: Number(config.capacityCoefficient || 100),
       completionToValues: selectedCompletionTargets
     });
@@ -191,6 +192,16 @@ function Edit() {
           Display forecast
         </label>
         <div className="editGrid">
+          <label>
+            Forecast days
+            <select
+              value={config.forecastDayMode || 'all'}
+              onChange={(event) => update('forecastDayMode', event.target.value)}
+            >
+              <option value="all">All days</option>
+              <option value="working">Working days</option>
+            </select>
+          </label>
           <label>
             Forecast months
             <input
