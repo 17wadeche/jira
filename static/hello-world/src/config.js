@@ -25,6 +25,7 @@ export const DEFAULT_CONFIG = {
   assignees: [],
   peopleDisplay: 'combined',
   targetLabel: PEOPLE_GROUP_LABEL,
+  completionFieldId: 'customfield_11302',
   completionToValues: ['Ready for Review (Demoed)']
 };
 export const MOCK_DATA = {

@@ -37,9 +37,10 @@ async function jiraJson(path, options = {}) {
 }
 const COMPLETION_FIELD_NAME = 'Business Tested & Approved';
 const DEFAULT_COMPLETION_TO_VALUES = ['Ready for Review (Demoed)'];
-async function findCompletionField() {
+async function findCompletionField(configuredFieldId) {
   const fields = await jiraJson(route`/rest/api/3/field`);
-  const field = fields.find((candidate) => candidate.name === COMPLETION_FIELD_NAME);
+  const field = fields.find((candidate) => candidate.id === configuredFieldId) ||
+    fields.find((candidate) => candidate.name === COMPLETION_FIELD_NAME);
   if (!field) {
     throw new Error(`Jira field "${COMPLETION_FIELD_NAME}" was not found.`);
   }
@@ -228,7 +229,7 @@ function buildBreakdown(issues) {
 }
 resolver.define('getBurndownData', async ({ payload }) => {
   const config = { ...DEFAULT_CONFIG, ...(payload?.config || {}), jql: decodeHtmlEntities(payload?.jql || payload?.config?.jql || DEFAULT_CONFIG.jql) };
-  const completionField = await findCompletionField();
+  const completionField = await findCompletionField(config.completionFieldId);
   const rawIssues = await searchIssues(config.jql, completionField.id);
   const historiesByIssueId = await fetchCompletionHistories(rawIssues, completionField.id);
   const issues = rawIssues.map((issue) => ({
